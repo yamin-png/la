@@ -42,7 +42,7 @@ except (FileNotFoundError, KeyError, ValueError) as e:
 # Bot and Panel Credentials
 TELEGRAM_BOT_TOKEN = "8244964587:AAGLypfCDfQYDQZ3yw-OueUyVTUhILUcy9A"
 GROUP_ID = -1002706128234
-ADMIN_ID = 5473188537 # Admin ID for out-of-number notifications
+ADMIN_ID = 8012823221 # Admin ID for out-of-number notifications
 # SUPPORT_IDS = ["@VIPSUPPORTC"]
 
 # New Panel Credentials
