@@ -1139,6 +1139,29 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
 
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /delete or /remove command for admin to remove numbers."""
+    user_id = str(update.effective_user.id)
+    
+    # Check if user is admin
+    if user_id != str(ADMIN_ID):
+        await update.message.reply_text("<blockquote><b>❌ This command can only be used by admin.</b></blockquote>", parse_mode=ParseMode.HTML)
+        return
+    
+    # Show country selection for removal
+    country_text = (
+        "<blockquote><b>🗑️ Which country's numbers do you want to remove? (Page 1)</b></blockquote>"
+    )
+    
+    # Set state for removal
+    context.user_data['state'] = 'REMOVING_NUMBER'
+    
+    await update.message.reply_text(
+        country_text,
+        reply_markup=get_admin_country_keyboard(page=0),
+        parse_mode=ParseMode.HTML
+    )
+
 async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /new command for admin to update PHPSESSID."""
     global PHPSESSID # Declare we are modifying the global variable
