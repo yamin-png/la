@@ -44,14 +44,14 @@ GROUP_ID = -1003009605120
 PAYMENT_CHANNEL_ID = -1003184589906
 ADMIN_ID = 5473188537
 GROUP_LINK = "https://t.me/pgotp"
-SMS_AMOUNT = 0.03  # $0.03 per OTP
+SMS_AMOUNT = 0.003  # $0.03 per OTP
 WITHDRAWAL_LIMIT = 1.0  # Minimum $1.00 to withdraw
 
 # New Panel Credentials
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
 PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
 # Prefer PHPSESSID from config if available
-PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')  # Session ID for API access
+PHPSESSID = config.get('PHPSESSID', 'ae3771mtkp2a0dcvel03v9jrtu')  # Session ID for API access
 
 # Available Countries with flags (297 countries)
 COUNTRIES = {
