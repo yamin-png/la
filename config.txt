@@ -1,0 +1,3 @@
+[Settings]
+
+PHPSESSID=ae3771mtkp2a0dcvel03v9jrtu
