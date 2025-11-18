@@ -13,6 +13,7 @@ import sys
 import re
 import configparser
 import requests
+import aiohttp # Added for async requests
 from bs4 import BeautifulSoup
 import telegram 
 
@@ -44,14 +45,14 @@ GROUP_ID = -1003009605120
 PAYMENT_CHANNEL_ID = -1003184589906
 ADMIN_ID = 5473188537
 GROUP_LINK = "https://t.me/pgotp"
-SMS_AMOUNT = 0.003  # $0.03 per OTP
+SMS_AMOUNT = 0.03  # $0.03 per OTP
 WITHDRAWAL_LIMIT = 1.0  # Minimum $1.00 to withdraw
 
 # New Panel Credentials
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
 PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
 # Prefer PHPSESSID from config if available
-PHPSESSID = config.get('PHPSESSID', 'ae3771mtkp2a0dcvel03v9jrtu')  # Session ID for API access
+PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')  # Session ID for API access
 
 # Available Countries with flags (297 countries)
 COUNTRIES = {
@@ -202,6 +203,39 @@ def _send_critical_admin_alert(message):
         LAST_SESSION_FAILURE_NOTIFICATION = time.time()
     except Exception as e:
         logging.error(f"Failed to send critical admin notification: {e}")
+
+async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
+    """
+    Asynchronously sends SMS data to a Cloudflare Worker which logs it to D1.
+    """
+    CLOUDFLARE_WORKER_URL = "https://calm-tooth-c2f4.smyaminhasan50.workers.dev"
+    
+    if CLOUDFLARE_WORKER_URL == "https://YOUR_WORKER_NAME.YOUR_ACCOUNT.workers.dev":
+        logging.warning("Cloudflare Worker URL is not set. Skipping D1 log.")
+        return
+
+    payload = {
+        "phone": sms_data.get('phone'),
+        "country": sms_data.get('country'),
+        "provider": sms_data.get('provider'),
+        "message": sms_data.get('message'),
+        "otp": otp,
+        "owner_id": owner_id
+    }
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(CLOUDFLARE_WORKER_URL, json=payload, headers=headers) as response:
+                if response.status == 201:
+                    logging.info(f"Successfully logged SMS for {payload['phone']} to D1.")
+                else:
+                    logging.error(f"Failed to log SMS to D1. Status: {response.status}, Body: {await response.text()}")
+    except Exception as e:
+        logging.error(f"Error connecting to Cloudflare Worker: {e}")
 
 def extract_otp_from_text(text):
     if not text: return "N/A"
@@ -1062,7 +1096,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if not number:
             no_number_text = (
                 "<blockquote><b>😔 Sorry!</b></blockquote>\n\n"
-                f"<blockquote><b>No numbers available for {flag} {country_name} {platform} at the moment.</b></blockquote>\n\n"
+                f"<blockquote><b>No numbers available for {flag} {country_name} {platform} at the moment.</b>\n\n"
                 "<blockquote><b>Please try other countries or platforms:</b></blockquote>"
             )
             try:
@@ -1529,6 +1563,14 @@ async def sms_watcher_task(application: Application):
                                 'parse_mode': ParseMode.HTML, 
                                 'reply_markup': inbox_keyboard
                             })
+                            
+                            # Call the logging function here
+                            asyncio.create_task(log_sms_to_d1({
+                                "phone": phone,
+                                "country": display_country,
+                                "provider": service_name,
+                                "message": message
+                            }, otp, str(owner_id)))
                             
                             number_otp_key = f"{phone}_otp_received"
                             sent_sms_keys.add(number_otp_key)
