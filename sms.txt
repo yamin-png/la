@@ -1,0 +1,21 @@
+{"country": "Unknown", "provider": "Facebook", "message": "# 450196 est votre code Facebook H29QFsn4Sr", "phone": "221763711224"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 597570 est votre code Facebook H29QFsn4Sr", "phone": "221763711224"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 034173 est votre code Facebook H29QFsn4Sr", "phone": "221763711351"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 847633 est votre code Facebook H29QFsn4Sr", "phone": "221763719615"}
+{"country": "Unknown", "provider": "Facebook", "message": "339181 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763717162"}
+{"country": "Unknown", "provider": "Facebook", "message": "214013 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763717655"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 50009 is your Facebook code\nH29QFsn4Sr", "phone": "221763719774"}
+{"country": "Unknown", "provider": "Facebook", "message": "460578 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763716154"}
+{"country": "Unknown", "provider": "Facebook", "message": "482461 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763716154"}
+{"country": "Unknown", "provider": "Facebook", "message": "450887 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763711034"}
+{"country": "Unknown", "provider": "Facebook", "message": "760436 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763715336"}
+{"country": "Unknown", "provider": "Facebook", "message": "595698 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763710647"}
+{"country": "Unknown", "provider": "Facebook", "message": "630597 est le code de r\u00e9initialisation de votre mot de passe Facebook", "phone": "221763712131"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 813724 est votre code Facebook H29QFsn4Sr", "phone": "221763719658"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 524024 est votre code Facebook H29QFsn4Sr", "phone": "221765086978"}
+{"country": "Unknown", "provider": "Facebook", "message": "# 358386 est votre code Facebook H29QFsn4Sr", "phone": "221765976418"}
+{"country": "Unknown", "provider": "Facebook", "message": "\u200f#\u200f \u200f\u200f136726\u200f \u0647\u0648 \u0631\u0645\u0632 \u200f\u200eFacebook\u200e\u200f \u0627\u0644\u062e\u0627\u0635 \u0628\u0643\u200f \u200f\u200eH29QFsn4Sr\u200e\u200f", "phone": "221763199105"}
+{"country": "Unknown", "provider": "CloudOTP", "message": "207537 is your verification code for taxfixcom", "phone": "996778785538"}
+{"country": "Unknown", "provider": "Facebook", "message": "Facebook votre code est le 559694\n@mfacebookcom #559694", "phone": "221763518502"}
+{"country": "Unknown", "provider": "Facebook", "message": "Facebook votre code est le 27151474\n@mfacebookcom #27151474", "phone": "221763711255"}
+{"country": "Unknown", "provider": "0", "message": "0", "phone": "0"}
