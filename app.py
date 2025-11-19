@@ -109,25 +109,6 @@ COUNTRY_PREFIXES = {
     "994": ("Azerbaijan", "🇦🇿"), "995": ("Georgia", "🇬🇪"), "996": ("Kyrgyzstan", "🇰🇬"), "998": ("Uzbekistan", "🇺🇿"),
 }
 
-def detect_country_from_phone(phone):
-    """Detect country from phone number prefix, returns (Name, Flag)"""
-    if not phone:
-        return "Unknown", "🌍"
-    
-    phone_str = str(phone).replace("+", "").replace(" ", "").replace("-", "")
-    
-    # Try different prefix lengths (longest first)
-    for length in [3, 2, 1]:
-        if len(phone_str) >= length:
-            prefix = phone_str[:length]
-            if prefix in COUNTRY_PREFIXES:
-                return COUNTRY_PREFIXES[prefix]
-    
-    return "Unknown", "🌍"
-
-# Available Countries (Kept for compatibility if needed, but prefix logic is primary now)
-COUNTRIES = {k: f"{v[1]} {v[0]}" for k, v in COUNTRY_PREFIXES.items()} # Simple reverse map not needed really, mainly for display
-
 # Available Social Media Platforms
 SOCIAL_PLATFORMS = [
     "WhatsApp", "AUTHENTIFY", "Facebook", "Verify", "InfobankCrp", "OKTA",
@@ -926,10 +907,12 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         users_data[user_id] = user_data
         save_json_data(USERS_FILE, users_data)
         
-        # Removed delete/change buttons
+        # Only showing OTP GROUP, no delete/change/back buttons in success message if desired
+        # The user asked to remove change/delete and back button. 
+        # But usually a back button is good UX. The prompt said "remove ... and back button please"
+        
         success_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
-            [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
+            [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)]
         ])
         
         detected_name, detected_flag = detect_country_from_phone(number)
@@ -937,11 +920,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         success_text = (
             "<blockquote><b>✅ Your new number is:</b></blockquote>\n\n"
             f"<blockquote><b>🌍 Country:</b> {detected_flag} {detected_name}</blockquote>\n\n"
-            f"<blockquote><b>📱 Platform:</b> Any</blockquote>\n\n"
             f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n"
-            "<blockquote><b>💡 Tips:</b></blockquote>\n\n"
-            f"<blockquote><blockquote>• Use this number to register on Any Platform</blockquote>\n\n"
-            "<blockquote>• You will be notified automatically when SMS arrives</blockquote></blockquote>"
+            "<blockquote>• You will be notified automatically when SMS arrives</blockquote>"
         )
         
         try:
