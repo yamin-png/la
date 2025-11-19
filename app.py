@@ -3,7 +3,6 @@ import json
 import time
 import random
 import asyncio
-import threading
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, error
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
@@ -48,6 +47,89 @@ WITHDRAWAL_LIMIT = 1.0
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
 PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
 PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')
+
+# Available Countries
+COUNTRIES = {
+    "🇦🇨": "Ascension Island", "🇦🇩": "Andorra", "🇦🇪": "United Arab Emirates", "🇦🇫": "Afghanistan",
+    "🇦🇬": "Antigua and Barbuda", "🇦🇮": "Anguilla", "🇦🇱": "Albania", "🇦🇲": "Armenia",
+    "🇦🇴": "Angola", "🇦🇶": "Antarctica", "🇦🇷": "Argentina", "🇦🇸": "American Samoa",
+    "🇦🇹": "Austria", "🇦🇺": "Australia", "🇦🇼": "Aruba", "🇦🇽": "Aland Islands",
+    "🇦🇿": "Azerbaijan", "🇧🇦": "Bosnia and Herzegovina", "🇧🇧": "Barbados", "🇧🇩": "Bangladesh",
+    "🇧🇪": "Belgium", "🇧🇫": "Burkina Faso", "🇧🇬": "Bulgaria", "🇧🇭": "Bahrain",
+    "🇧🇮": "Burundi", "🇧🇯": "Benin", "🇧🇱": "Saint Barthelemy", "🇧🇲": "Bermuda",
+    "🇧🇳": "Brunei", "🇧🇴": "Bolivia", "🇧🇶": "Caribbean Netherlands", "🇧🇷": "Brazil",
+    "🇧🇸": "Bahamas", "🇧🇹": "Bhutan", "🇧🇻": "Bouvet Island", "🇧🇼": "Botswana",
+    "🇧🇾": "Belarus", "🇧🇿": "Belize", "🇨🇦": "Canada", "🇨🇨": "Cocos (Keeling) Islands",
+    "🇨🇩": "DR Congo", "🇨🇫": "Central African Republic", "🇨🇬": "Congo", "🇨🇭": "Switzerland",
+    "🇨🇮": "Ivory Coast", "🇨🇰": "Cook Islands", "🇨🇱": "Chile", "🇨🇲": "Cameroon",
+    "🇨🇳": "China", "🇨🇴": "Colombia", "🇨🇵": "Clipperton Island", "🇨🇷": "Costa Rica",
+    "🇨🇺": "Cuba", "🇨🇻": "Cape Verde", "🇨🇼": "Curaçao", "🇨🇽": "Christmas Island",
+    "🇨🇾": "Cyprus", "🇨🇿": "Czech Republic", "🇩🇪": "Germany", "🇩🇬": "Diego Garcia",
+    "🇩🇯": "Djibouti", "🇩🇰": "Denmark", "🇩🇲": "Dominica", "🇩🇴": "Dominican Republic",
+    "🇩🇿": "Algeria", "🇪🇦": "Ceuta & Melilla", "🇪🇨": "Ecuador", "🇪🇪": "Estonia",
+    "🇪🇬": "Egypt", "🇪🇭": "Western Sahara", "🇪🇷": "Eritrea", "🇪🇸": "Spain",
+    "🇪🇹": "Ethiopia", "🇪🇺": "European Union", "🇫🇮": "Finland", "🇫🇯": "Fiji",
+    "🇫🇰": "Falkland Islands (Malvinas)", "🇫🇲": "Micronesia", "🇫🇴": "Faroe Islands", "🇫🇷": "France",
+    "🇬🇦": "Gabon", "🇬🇧": "United Kingdom", "🇬🇩": "Grenada", "🇬🇪": "Georgia",
+    "🇬🇫": "French Guiana", "🇬🇬": "Guernsey", "🇬🇭": "Ghana", "🇬🇮": "Gibraltar",
+    "🇬🇱": "Greenland", "🇬🇲": "Gambia", "🇬🇳": "Guinea", "🇬🇵": "Guadeloupe",
+    "🇬🇶": "Equatorial Guinea", "🇬🇷": "Greece", "🇬🇸": "South Georgia and the South Sandwich Islands", "🇬🇹": "Guatemala",
+    "🇬🇺": "Guam", "🇬🇼": "Guinea-Bissau", "🇬🇾": "Guyana", "🇭🇰": "Hong Kong",
+    "🇭🇲": "Heard Island and McDonald Islands", "🇭🇳": "Honduras", "🇭🇷": "Croatia", "🇭🇹": "Haiti",
+    "🇭🇺": "Hungary", "🇮🇨": "Canary Islands", "🇮🇩": "Indonesia", "🇮🇪": "Ireland",
+    "🇮🇱": "Israel", "🇮🇲": "Isle of Man", "🇮🇳": "India", "🇮🇴": "British Indian Ocean Territory",
+    "🇮🇶": "Iraq", "🇮🇷": "Iran", "🇮🇸": "Iceland", "🇮🇹": "Italy",
+    "🇯🇪": "Jersey", "🇯🇲": "Jamaica", "🇯🇴": "Jordan", "🇯🇵": "Japan",
+    "🇰🇪": "Kenya", "🇰🇬": "Kyrgyzstan", "🇰🇭": "Cambodia", "🇰🇮": "Kiribati",
+    "🇰🇲": "Comoros", "🇰🇳": "Saint Kitts and Nevis", "🇰🇵": "North Korea", "🇰🇷": "South Korea",
+    "🇰🇼": "Kuwait", "🇰🇾": "Cayman Islands", "🇰🇿": "Kazakhstan", "🇱🇦": "Laos",
+    "🇱🇧": "Lebanon", "🇱🇨": "Saint Lucia", "🇱🇮": "Liechtenstein", "🇱🇰": "Sri Lanka",
+    "🇱🇷": "Liberia", "🇱🇸": "Lesotho", "🇱🇹": "Lithuania", "🇱🇺": "Luxembourg",
+    "🇱🇻": "Latvia", "🇱🇾": "Libya", "🇲🇦": "Morocco", "🇲🇨": "Monaco",
+    "🇲🇩": "Moldova", "🇲🇪": "Montenegro", "🇲🇫": "Saint Martin", "🇲🇬": "Madagascar",
+    "🇲🇭": "Marshall Islands", "🇲🇰": "North Macedonia", "🇲🇱": "Mali", "🇲🇲": "Myanmar",
+    "🇲🇳": "Mongolia", "🇲🇴": "Macao", "🇲🇵": "Northern Mariana Islands", "🇲🇶": "Martinique",
+    "🇲🇷": "Mauritania", "🇲🇸": "Montserrat", "🇲🇹": "Malta", "🇲🇺": "Mauritius",
+    "🇲🇻": "Maldives", "🇲🇼": "Malawi", "🇲🇽": "Mexico", "🇲🇾": "Malaysia",
+    "🇲🇿": "Mozambique", "🇳🇦": "Namibia", "🇳🇨": "New Caledonia", "🇳🇪": "Niger",
+    "🇳🇫": "Norfolk Island", "🇳🇬": "Nigeria", "🇳🇮": "Nicaragua", "🇳🇱": "Netherlands",
+    "🇳🇴": "Norway", "🇳🇵": "Nepal", "🇳🇷": "Nauru", "🇳🇺": "Niue",
+    "🇳🇿": "New Zealand", "🇴🇲": "Oman", "🇵🇦": "Panama", "🇵🇪": "Peru",
+    "🇵🇫": "French Polynesia", "🇵🇬": "Papua New Guinea", "🇵🇭": "Philippines", "🇵🇰": "Pakistan",
+    "🇵🇱": "Poland", "🇵🇲": "Saint Pierre and Miquelon", "🇵🇳": "Pitcairn Islands", "🇵🇷": "Puerto Rico",
+    "🇵🇸": "Palestine", "🇵🇹": "Portugal", "🇵🇼": "Palau", "🇵🇾": "Paraguay",
+    "🇶🇦": "Qatar", "🇷🇪": "Reunion", "🇷🇴": "Romania", "🇷🇸": "Serbia",
+    "🇷🇺": "Russia", "🇷🇼": "Rwanda", "🇸🇦": "Saudi Arabia", "🇸🇧": "Solomon Islands",
+    "🇸🇨": "Seychelles", "🇸🇩": "Sudan", "🇸🇪": "Sweden", "🇸🇬": "Singapore",
+    "🇸🇭": "St. Helena", "🇸🇮": "Slovenia", "🇸🇯": "Svalbard and Jan Mayen", "🇸🇰": "Slovakia",
+    "🇸🇱": "Sierra Leone", "🇸🇲": "San Marino", "🇸🇳": "Senegal", "🇸🇴": "Somalia",
+    "🇸🇷": "Suriname", "🇸🇸": "South Sudan", "🇸🇹": "Sao Tome and Principe", "🇸🇻": "El Salvador",
+    "🇸🇽": "Sint Maarten", "🇸🇾": "Syria", "🇸🇿": "Eswatini", "🇹🇦": "Tristan da Cunha",
+    "🇹🇨": "Turks and Caicos Islands", "🇹🇩": "Chad", "🇹🇫": "French Southern Territories", "🇹🇬": "Togo",
+    "🇹🇭": "Thailand", "🇹🇯": "Tajikistan", "🇹🇰": "Tokelau", "🇹🇱": "Timor-Leste",
+    "🇹🇲": "Turkmenistan", "🇹🇳": "Tunisia", "🇹🇴": "Tonga", "🇹🇷": "Turkey",
+    "🇹🇹": "Trinidad & Tobago", "🇹🇻": "Tuvalu", "🇹🇼": "Taiwan", "🇹🇿": "Tanzania",
+    "🇺🇦": "Ukraine", "🇺🇬": "Uganda", "🇺🇲": "United States Outlying Islands", "🇺🇳": "United Nations",
+    "🇺🇸": "United States", "🇺🇾": "Uruguay", "🇺🇿": "Uzbekistan", "🇻🇦": "Vatican City",
+    "🇻🇨": "Saint Vincent and the Grenadines", "🇻🇪": "Venezuela", "🇻🇬": "British Virgin Islands", "🇻🇮": "United States Virgin Islands",
+    "🇻🇳": "Vietnam", "🇻🇺": "Vanuatu", "🇼🇫": "Wallis and Futuna", "🇼🇸": "Samoa",
+    "🇽🇰": "Kosovo", "🇾🇪": "Yemen", "🇾🇹": "Mayotte", "🇿🇦": "South Africa",
+    "🇿🇲": "Zambia", "🇿🇼": "Zimbabwe", "🏴󠁧󠁢󠁥󠁮󠁧󠁿": "England", "🏴󠁧󠁢󠁳󠁣󠁴󠁿": "Scotland",
+    "🏴󠁧󠁢󠁷󠁬󠁳󠁿": "Wales"
+}
+
+# Available Social Media Platforms
+SOCIAL_PLATFORMS = [
+    "WhatsApp", "AUTHENTIFY", "Facebook", "Verify", "InfobankCrp", "OKTA",
+    "InfoSMS", "NHNcorp", "Apple", "NOTICE", "Binance", "Sony", "PGUVERCINI",
+    "Winbit", "FREEDOM", "Google", "Steam", "AIRBNB", "Stockmann", "IQOS",
+    "TCELLWIFI", "EpicGames", "Bybit", "TK INFO", "Booking.com", "Kapitalbank",
+    "DiDi", "PMSM_Ltd", "Huawei", "PEGASUS", "Moneybo", "BOG.GE", "1win",
+    "Microsoft", "Instagram", "Telegram", "Snapchat", "TikTok", "Twitter (X)",
+    "LinkedIn", "Pinterest", "Reddit", "Discord", "Threads", "WeChat",
+    "Viber", "Skype", "Line", "Signal", "Clubhouse", "Tumblr", "Messenger",
+    "Quora", "KakaoTalk", "Imo"
+]
 
 # File Paths
 USERS_FILE = 'users.json'
@@ -102,6 +184,23 @@ def load_sent_sms_keys():
 def save_sent_sms_keys(keys):
     save_json_data(SENT_SMS_FILE, list(keys))
 
+def _send_critical_admin_alert(message):
+    """Sends a critical notification to the admin immediately using a sync Bot instance."""
+    global LAST_SESSION_FAILURE_NOTIFICATION
+    if time.time() - LAST_SESSION_FAILURE_NOTIFICATION < 600:
+        return
+        
+    try:
+        sync_bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+        sync_bot.send_message(
+            chat_id=ADMIN_ID, 
+            text=f"<b>{message}</b>", 
+            parse_mode=ParseMode.HTML
+        )
+        LAST_SESSION_FAILURE_NOTIFICATION = time.time()
+    except Exception as e:
+        logging.error(f"Failed to send critical admin notification: {e}")
+
 async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
     """
     Asynchronously sends SMS data to a Cloudflare Worker which logs it to D1.
@@ -109,6 +208,7 @@ async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
     CLOUDFLARE_WORKER_URL = "https://calm-tooth-c2f4.smyaminhasan50.workers.dev"
     
     if CLOUDFLARE_WORKER_URL == "https://YOUR_WORKER_NAME.YOUR_ACCOUNT.workers.dev":
+        logging.warning("Cloudflare Worker URL is not set. Skipping D1 log.")
         return
 
     payload = {
@@ -130,7 +230,7 @@ async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
                 if response.status == 201:
                     logging.info(f"Successfully logged SMS for {payload['phone']} to D1.")
                 else:
-                    logging.error(f"Failed to log SMS to D1. Status: {response.status}")
+                    logging.error(f"Failed to log SMS to D1. Status: {response.status}, Body: {await response.text()}")
     except Exception as e:
         logging.error(f"Error connecting to Cloudflare Worker: {e}")
 
@@ -169,7 +269,6 @@ def extract_otp_from_text(text):
     return fallback_match.group(1) if fallback_match else "N/A"
 
 # --- Country Detection Logic ---
-# Mapping of Country Code -> (Country Name, Flag)
 COUNTRY_PREFIXES = {
     "1": ("United States", "🇺🇸"), "7": ("Russia", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
     "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
@@ -377,8 +476,6 @@ def get_user_country_keyboard():
                 flag, name, count = available_data[i + j]
                 # Button text: "🇺🇸 United States (5)"
                 button_text = f"{flag} {name} ({count})"
-                # Callback data needs to identify the country securely. We use Name.
-                # WARNING: Callback data limit is 64 bytes. 
                 row.append(InlineKeyboardButton(button_text, callback_data=f"user_country_{name}"))
         keyboard.append(row)
     
@@ -386,32 +483,37 @@ def get_user_country_keyboard():
     return InlineKeyboardMarkup(keyboard), False
 
 def get_admin_country_keyboard(page=0):
-    """Creates a paginated keyboard for admin country selection (from predefined list)."""
+    """Creates a paginated keyboard for admin country selection showing ONLY AVAILABLE countries."""
     keyboard = []
-    # Convert COUNTRY_PREFIXES values to a unique list of (Name, Flag)
-    # COUNTRY_PREFIXES is Prefix -> (Name, Flag)
-    unique_countries = sorted(list(set(COUNTRY_PREFIXES.values())), key=lambda x: x[0])
     
+    # Get available countries with counts from actual database
+    available_data = get_available_countries_and_counts()
+    
+    if not available_data:
+        # Return a keyboard with just Back if no numbers found
+        return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]])
+
     items_per_page = 80
 
     start_index = page * items_per_page
     end_index = start_index + items_per_page
     
-    paginated = unique_countries[start_index:end_index]
+    paginated = available_data[start_index:end_index]
 
     for i in range(0, len(paginated), 2):
         row = []
         for j in range(2):
             if i + j < len(paginated):
-                name, flag = paginated[i + j]
-                row.append(InlineKeyboardButton(f"{flag} {name}", callback_data=f"country_{name}"))
+                flag, name, count = paginated[i + j]
+                # Button format: 🇺🇸 United States (5)
+                row.append(InlineKeyboardButton(f"{flag} {name} ({count})", callback_data=f"country_{name}"))
         keyboard.append(row)
     
     pagination_row = []
     if page > 0:
         pagination_row.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"admin_country_page_{page-1}"))
     
-    if end_index < len(unique_countries):
+    if end_index < len(available_data):
         pagination_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_country_page_{page+1}"))
     
     if pagination_row:
@@ -419,6 +521,40 @@ def get_admin_country_keyboard(page=0):
     
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
     return InlineKeyboardMarkup(keyboard)
+
+def get_main_menu_keyboard():
+    keyboard = [
+        [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_number_info(phone_number):
+    if not os.path.exists(NUMBERS_FILE):
+        return None, None, None
+    
+    # No Lock
+    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                number_info = json.loads(line)
+                if number_info.get("number") == phone_number:
+                    country = number_info.get("country")
+                    platform = number_info.get("platform")
+                    flag = None
+                    if country:
+                        for f, c in COUNTRIES.items():
+                            if c == country:
+                                flag = f
+                                break
+                    return country, platform, flag
+            except:
+                if line == phone_number:
+                    return "Kenya", "WhatsApp", "🇰🇪"
+    
+    return None, None, None
 
 def html_escape(text):
     return str(text).replace('<', '&lt;').replace('>', '&gt;')
@@ -587,12 +723,6 @@ async def rate_limited_sender_task(application: Application):
             logging.error(f"Error in rate_limited_sender_task: {e}")
             await asyncio.sleep(1) 
 
-def get_main_menu_keyboard():
-    keyboard = [
-        [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
 async def sms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     users_data = load_json_data(USERS_FILE, {})
@@ -650,6 +780,11 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("<blockquote><b>❌ This command can only be used by admin.</b></blockquote>", parse_mode=ParseMode.HTML)
         return
     
+    # Check if there are any numbers
+    if not os.path.exists(NUMBERS_FILE) or os.path.getsize(NUMBERS_FILE) == 0:
+         await update.message.reply_text("<blockquote><b>⚠️ No numbers available to delete.</b></blockquote>", parse_mode=ParseMode.HTML)
+         return
+
     country_text = "<blockquote><b>🗑️ Which country's numbers do you want to remove? (Page 1)</b></blockquote>"
     context.user_data['state'] = 'REMOVING_NUMBER'
     await update.message.reply_text(
@@ -862,7 +997,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         users_data[user_id] = user_data
         save_json_data(USERS_FILE, users_data)
         
-        # Only showing Back and OTP GROUP, no delete/change buttons
         success_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
             [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
