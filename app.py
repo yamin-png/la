@@ -49,6 +49,10 @@ PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
 PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
 PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')
 
+# --- Global File Lock ---
+# This is crucial to prevent database corruption when multiple users access the file
+FILE_LOCK = threading.Lock()
+
 # Available Countries
 COUNTRIES = {
     "🇦🇨": "Ascension Island", "🇦🇩": "Andorra", "🇦🇪": "United Arab Emirates", "🇦🇫": "Afghanistan",
@@ -269,40 +273,39 @@ def get_number_from_file_for_platform(country, platform):
     if not os.path.exists(NUMBERS_FILE):
         return None
     
-    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-        lines = [line.strip() for line in f if line.strip()]
-    
-    if not lines:
-        return None
-    
-    for i, line in enumerate(lines):
-        try:
-            number_info = json.loads(line)
-            if (number_info.get("country") == country and 
-                number_info.get("platform") == platform):
-                number = number_info.get("number")
-                if number:
-                    lines.pop(i)
-                    with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                        for remaining_line in lines:
-                            f.write(remaining_line + "\n")
-                    return number
-        except:
-            if country == "Kenya":
-                number = line
-                if number:
-                    lines.pop(i)
-                    with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                        for remaining_line in lines:
-                            f.write(remaining_line + "\n")
-                    return number
+    with FILE_LOCK:
+        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f if line.strip()]
+        
+        if not lines:
+            return None
+        
+        for i, line in enumerate(lines):
+            try:
+                number_info = json.loads(line)
+                if (number_info.get("country") == country and 
+                    number_info.get("platform") == platform):
+                    number = number_info.get("number")
+                    if number:
+                        lines.pop(i)
+                        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+                            for remaining_line in lines:
+                                f.write(remaining_line + "\n")
+                        return number
+            except:
+                if country == "Kenya":
+                    number = line
+                    if number:
+                        lines.pop(i)
+                        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+                            for remaining_line in lines:
+                                f.write(remaining_line + "\n")
+                        return number
     
     return None
 
 def add_number_to_file(number, country=None, platform=None):
-    file_lock = threading.Lock()
-    
-    with file_lock:
+    with FILE_LOCK:
         number_info = {
             "number": number,
             "country": country,
@@ -334,9 +337,7 @@ def add_number_to_file(number, country=None, platform=None):
                 logging.error(f"Failed to restore file: {restore_error}")
 
 def remove_numbers_for_platforms(country, platforms):
-    file_lock = threading.Lock()
-    
-    with file_lock:
+    with FILE_LOCK:
         if not os.path.exists(NUMBERS_FILE):
             return 0
         
@@ -386,20 +387,21 @@ def get_available_countries_for_platform(platform):
         return []
     
     countries = set()
-    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                number_info = json.loads(line)
-                if number_info.get("platform") == platform:
-                    country = number_info.get("country")
-                    if country:
-                        countries.add(country)
-            except:
-                if platform in ["WhatsApp", "Facebook", "Instagram"]:
-                    countries.add("Kenya")
+    with FILE_LOCK:
+        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    number_info = json.loads(line)
+                    if number_info.get("platform") == platform:
+                        country = number_info.get("country")
+                        if country:
+                            countries.add(country)
+                except:
+                    if platform in ["WhatsApp", "Facebook", "Instagram"]:
+                        countries.add("Kenya")
     
     return list(countries)
 
@@ -408,19 +410,20 @@ def get_number_count_for_country_and_platform(country, platform):
         return 0
     
     count = 0
-    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                number_info = json.loads(line)
-                if (number_info.get("country") == country and 
-                    number_info.get("platform") == platform):
-                    count += 1
-            except:
-                if country == "Kenya" and platform in ["WhatsApp", "Facebook", "Instagram"]:
-                    count += 1
+    with FILE_LOCK:
+        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    number_info = json.loads(line)
+                    if (number_info.get("country") == country and 
+                        number_info.get("platform") == platform):
+                        count += 1
+                except:
+                    if country == "Kenya" and platform in ["WhatsApp", "Facebook", "Instagram"]:
+                        count += 1
     
     return count
 
@@ -536,26 +539,27 @@ def get_number_info(phone_number):
     if not os.path.exists(NUMBERS_FILE):
         return None, None, None
     
-    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                number_info = json.loads(line)
-                if number_info.get("number") == phone_number:
-                    country = number_info.get("country")
-                    platform = number_info.get("platform")
-                    flag = None
-                    if country:
-                        for f, c in COUNTRIES.items():
-                            if c == country:
-                                flag = f
-                                break
-                    return country, platform, flag
-            except:
-                if line == phone_number:
-                    return "Kenya", "WhatsApp", "🇰🇪"
+    with FILE_LOCK:
+        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    number_info = json.loads(line)
+                    if number_info.get("number") == phone_number:
+                        country = number_info.get("country")
+                        platform = number_info.get("platform")
+                        flag = None
+                        if country:
+                            for f, c in COUNTRIES.items():
+                                if c == country:
+                                    flag = f
+                                    break
+                        return country, platform, flag
+                except:
+                    if line == phone_number:
+                        return "Kenya", "WhatsApp", "🇰🇪"
     
     return None, None, None
 
@@ -743,7 +747,7 @@ class NewPanelSmsManager:
                     logging.warning(f"Could not parse SMS row: {e}")
 
             logging.info(f"Processed {len(sms_list)} valid SMS entries.") 
-            with self._lock:
+            with FILE_LOCK:
                 with open(SMS_CACHE_FILE, 'w', encoding='utf-8') as f:
                     for sms in sms_list:
                         f.write(json.dumps(sms) + "\n")
@@ -1052,7 +1056,17 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
         flag = query.data.split('user_country_')[1]
         country_name = COUNTRIES.get(flag, "Unknown")
-        platform = context.user_data.get('selected_platform', 'Unknown')
+        
+        # --- KEY FIX: Check for missing platform session data ---
+        platform = context.user_data.get('selected_platform')
+        if not platform:
+             await query.answer("⚠️ Session expired. Please select platform again.", show_alert=True)
+             try:
+                 await query.message.delete()
+             except:
+                 pass
+             await start_command(update, context)
+             return
         
         # Check cooldown
         cooldown = 5
@@ -1237,17 +1251,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("❌ Number already deleted or not found.", show_alert=True)
 
     elif query.data.startswith('change_number_'):
-        # "Change Number" is kept for backward compatibility or logic reuse but 
-        # strictly, if the user has a number, they must delete it first via 'delete_number_'.
-        # If 'change number' button is pressed, it implies they want to SWAP.
-        # But if the rule is "delete first", we can make this button do the deletion and re-fetch automatically?
-        # For now, let's disable it or make it show the alert to delete.
-        # OR: Implement swap logic which is effectively delete + get new.
-        # Given user said "without deleting user can't get another", I will make this button enforce that rule.
-        
         if len(user_data.get('phone_numbers', [])) > 0:
-             # We can allow "Change Number" to act as "Delete & Swap" if desired,
-             # BUT to strictly follow "delete first", we show alert.
              await query.answer("⚠️ Please delete your current number first.", show_alert=True)
              return
              
@@ -1483,10 +1487,7 @@ async def sms_watcher_task(application: Application):
     global manager_instance
     if not manager_instance:
         manager_instance = NewPanelSmsManager()
-    
-    # Load sent keys once at startup to avoid re-reading file constantly
-    sent_sms_keys = load_sent_sms_keys()
-    
+        
     while not shutdown_event.is_set():
         try:
             await asyncio.to_thread(manager_instance.scrape_and_save_all_sms)
@@ -1496,7 +1497,7 @@ async def sms_watcher_task(application: Application):
                 continue
 
             users_data = load_json_data(USERS_FILE, {})
-            # No longer reloading sent_sms_keys here to preserve state and prevent race conditions
+            sent_sms_keys = load_sent_sms_keys()
             
             phone_to_user_map = {}
             for uid, udata in users_data.items():
@@ -1504,13 +1505,14 @@ async def sms_watcher_task(application: Application):
                     phone_to_user_map[number] = uid
             
             data_changed = False
-            keys_changed = False
 
             with open(SMS_CACHE_FILE, 'r', encoding='utf-8') as f:
                 for line in f:
                     try:
                         sms_data = json.loads(line)
                         phone = sms_data.get('phone')
+                        country = sms_data.get('country', 'N/A')
+                        provider = sms_data.get('provider', 'N/A')
                         message = sms_data.get('message')
                         otp = extract_otp_from_text(message)
                         
@@ -1520,8 +1522,6 @@ async def sms_watcher_task(application: Application):
                         if unique_key in sent_sms_keys:
                             continue
 
-                        country = sms_data.get('country', 'N/A')
-                        provider = sms_data.get('provider', 'N/A')
                         number_country, number_platform, number_flag = get_number_info(phone)
                         
                         if not number_country:
@@ -1535,11 +1535,10 @@ async def sms_watcher_task(application: Application):
                         display_platform = number_platform if number_platform else provider
                         owner_id = phone_to_user_map.get(phone)
                         
-                        service_icon = "📱"
-                        service_name = provider
-                        service_display = "OTP"
-                        code_label = "OTP Code"
-
+                        group_keyboard = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
+                        ])
+                        
                         is_instagram = "instagram" in provider.lower() or "instagram" in message.lower()
                         is_whatsapp = "whatsapp" in provider.lower() or "whatsapp" in message.lower()
                         
@@ -1553,6 +1552,11 @@ async def sms_watcher_task(application: Application):
                             service_name = "WhatsApp"
                             service_display = "WhatsApp"
                             code_label = "WhatsApp Code"
+                        else:
+                            service_icon = "📱"
+                            service_name = provider
+                            service_display = "OTP"
+                            code_label = "OTP Code"
                         
                         group_msg = (
                             f"{service_icon} <b>New {service_display}!</b> ✨\n\n"
@@ -1563,10 +1567,6 @@ async def sms_watcher_task(application: Application):
                             f"📝 <b>Full Message:</b>\n\n"
                             f"<blockquote>{html_escape(message)}</blockquote>"
                         )
-                        
-                        group_keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
-                        ])
 
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 
@@ -1614,16 +1614,14 @@ async def sms_watcher_task(application: Application):
                             sent_sms_keys.add(number_otp_key)
 
                         sent_sms_keys.add(unique_key)
-                        keys_changed = True
 
                     except Exception as e:
                         logging.error(f"Error processing SMS line: {e}")
             
             if data_changed:
                 save_json_data(USERS_FILE, users_data)
-            
-            if keys_changed:
-                save_sent_sms_keys(sent_sms_keys)
+                
+            save_sent_sms_keys(sent_sms_keys)
 
         except Exception as e:
             logging.error(f"Error in sms_watcher_task: {e}")
