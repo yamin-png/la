@@ -290,12 +290,11 @@ def get_number_from_file_for_platform(country, platform):
         
         for i, line in enumerate(lines):
             try:
+                # Handle explicit user format: 
+                # {"number": "...", "country": "...", "platform": "...", "added_date": "..."}
                 number_info = json.loads(line)
                 
-                # DEBUG: Print what we found in file (limit output if file is huge)
-                if i < 3: print(f"DEBUG: Checking line {i}: {number_info}")
-
-                # Normalize strings for robust comparison (case insensitive, strip spaces)
+                # Normalize strings for robust comparison
                 stored_country = str(number_info.get("country", "")).strip().lower()
                 stored_platform = str(number_info.get("platform", "")).strip().lower()
                 target_country = str(country).strip().lower()
@@ -311,18 +310,10 @@ def get_number_from_file_for_platform(country, platform):
                                 f.write(remaining_line + "\n")
                         return number
             except json.JSONDecodeError:
-                # Handle legacy format fallback (only if strict match failed)
-                if str(country).lower() == "kenya": 
-                    number = line
-                    if number:
-                         print(f"DEBUG: Legacy match found (Kenya): {number}")
-                         lines.pop(i)
-                         with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                            for remaining_line in lines:
-                                f.write(remaining_line + "\n")
-                         return number
+                # Fallback for legacy lines (not strict JSON)
+                pass
             except Exception as e:
-                print(f"DEBUG: Error processing line '{line}': {e}")
+                print(f"DEBUG: Error processing line: {e}")
 
     print(f"DEBUG: No number found for {country} - {platform} after checking {len(lines)} lines.")
     return None
@@ -374,7 +365,6 @@ def remove_numbers_for_platforms(country, platforms):
         remaining_lines = []
         removed_count = 0
         
-        # Normalize platforms for comparison
         target_platforms = {p.lower().strip() for p in platforms}
         target_country = str(country).strip().lower()
 
@@ -395,11 +385,7 @@ def remove_numbers_for_platforms(country, platforms):
                 else:
                     remaining_lines.append(line + "\n")
             except:
-                if target_country == "kenya": # Legacy fallback removal
-                    removed_count += 1
-                    logging.info(f"Removed old format number: {line}")
-                else:
-                    remaining_lines.append(line + "\n")
+                 remaining_lines.append(line + "\n")
         
         try:
             with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
@@ -416,7 +402,6 @@ def get_available_countries_for_platform(platform):
         return []
     
     countries = set()
-    # Normalize target platform
     target_platform = str(platform).strip().lower()
 
     with FILE_LOCK:
@@ -430,15 +415,11 @@ def get_available_countries_for_platform(platform):
                     stored_platform = str(number_info.get("platform", "")).strip().lower()
                     
                     if stored_platform == target_platform:
-                        # Store original case country name if possible, but for now we trust what's in file
-                        # Or map it back to COUNTRIES dict if needed. 
-                        # Simple approach: Just take what is in file.
                         country = number_info.get("country")
                         if country:
                             countries.add(country)
                 except:
-                    if target_platform in ["whatsapp", "facebook", "instagram"]:
-                        countries.add("Kenya")
+                    pass
     
     return list(countries)
 
@@ -464,8 +445,7 @@ def get_number_count_for_country_and_platform(country, platform):
                     if stored_country == target_country and stored_platform == target_platform:
                         count += 1
                 except:
-                    if target_country == "kenya" and target_platform in ["whatsapp", "facebook", "instagram"]:
-                        count += 1
+                    pass
     
     return count
 
@@ -975,6 +955,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<blockquote>Click the 🎁 Get Number button below to get your number:</blockquote>\n\n"
     )
 
+    # FIX: Use context.bot.send_message instead of update.message.reply_text to avoid AttributeError
     await context.bot.send_message(
         chat_id=user_id, 
         text=welcome_text, 
@@ -1104,6 +1085,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         flag = query.data.replace('user_country_', '')
         country_name = COUNTRIES.get(flag, "Unknown")
         
+        # FIX: Check for missing platform
         platform = context.user_data.get('selected_platform')
         if not platform:
              await query.answer("⚠️ Session expired. Please select platform again.", show_alert=True)
@@ -1528,17 +1510,20 @@ async def sms_watcher_task(application: Application):
     global manager_instance
     if not manager_instance:
         manager_instance = NewPanelSmsManager()
-        
+    
+    # Load sent keys once at startup to avoid re-reading file constantly
+    sent_sms_keys = load_sent_sms_keys()
+    
     while not shutdown_event.is_set():
         try:
             await asyncio.to_thread(manager_instance.scrape_and_save_all_sms)
             
             if not os.path.exists(SMS_CACHE_FILE):
-                await asyncio.sleep(2)
+                await asyncio.sleep(15) # Ensure consistent delay if file missing
                 continue
 
             users_data = load_json_data(USERS_FILE, {})
-            sent_sms_keys = load_sent_sms_keys()
+            # sent_sms_keys is managed in memory now
             
             phone_to_user_map = {}
             for uid, udata in users_data.items():
@@ -1610,6 +1595,10 @@ async def sms_watcher_task(application: Application):
                             f"📝 <b>Full Message:</b>\n\n"
                             f"<blockquote>{html_escape(message)}</blockquote>"
                         )
+                        
+                        group_keyboard = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
+                        ])
 
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 
@@ -1671,7 +1660,7 @@ async def sms_watcher_task(application: Application):
         except Exception as e:
             logging.error(f"Error in sms_watcher_task: {e}")
         
-        await asyncio.sleep(15)
+        await asyncio.sleep(15) # Ensures 15 second delay between checks
 
 async def test_group_access(application):
     try:
