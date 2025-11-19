@@ -386,15 +386,30 @@ class NewPanelSmsManager:
     
     def fetch_sms_from_api(self):
         headers = {
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "x-requested-with": "XMLHttpRequest", 
             "cookie": f"PHPSESSID={PHPSESSID}",
+            "referer": f"{PANEL_BASE_URL}/agent/SMSDashboard",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 OPR/122.0.0.0"
         }
         try:
             resp = requests.get(self.get_api_url(), headers=headers, timeout=10)
+            
+            # Check if response is HTML (login page/error) instead of JSON
+            if resp.text.strip().startswith("<"):
+                logging.warning("Session Expired: API returned HTML instead of JSON.")
+                _send_critical_admin_alert("⚠️ Session Expired! Please update PHPSESSID.")
+                return []
+
             resp.raise_for_status()
             data = resp.json()
+            
             if 'aaData' in data: return data['aaData']
             if isinstance(data, list): return data
+            return []
+            
+        except json.JSONDecodeError:
+            logging.error(f"API Error: Invalid JSON received.")
             return []
         except Exception as e:
             logging.warning(f"API Fetch Error: {e}")
@@ -523,6 +538,7 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     global PHPSESSID
     if str(update.effective_user.id) != str(ADMIN_ID) or not context.args: return
     PHPSESSID = context.args[0]
+    # Save to config file logic here (simplified for brevity)
     await update.message.reply_text("✅ Session Updated")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -534,7 +550,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "username": user.username, "first_name": user.first_name,
             "phone_numbers": [], "balance": 0.0, "last_number_time": 0
         }
-        asyncio.to_thread(background_save_users)
+        # Schedule save in background
+        await asyncio.to_thread(background_save_users)
     
     keyboard = [[KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]]
     await context.bot.send_message(chat_id=user_id, text="<b>👋 Welcome!</b>", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), parse_mode=ParseMode.HTML)
@@ -560,9 +577,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user:
             amount = user['balance']
             user['balance'] = 0.0
-            asyncio.to_thread(background_save_users)
+            await asyncio.to_thread(background_save_users)
             
-            msg = f"<b>💸 Withdrawal Request</b>\nUser: {user_id}\nAmount: ${amount:.2f}\nInfo: {text}"
+            msg = f"<b>💸 Withdrawal Request</b>\nUser: {user_id}\nAmount: ${amount:.3f}\nInfo: {text}"
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("Approve", callback_data=f'admin_approve_{user_id}_{amount}'),
                  InlineKeyboardButton("Decline", callback_data=f'admin_decline_{user_id}_{amount}')]
@@ -594,7 +611,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     user_id = str(query.from_user.id)
     
     if data == 'main_menu':
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except:
+            pass
         await start_command(update, context)
         return
 
@@ -622,19 +642,23 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             user['last_number_time'] = time.time()
             user['phone_numbers'] = user['phone_numbers'][-3:]
             USERS_CACHE[user_id] = user
-            asyncio.to_thread(background_save_users)
+            await asyncio.to_thread(background_save_users)
             
             name, flag = detect_country_from_phone(number)
             msg = (
                 f"<blockquote><b>✅ Your new number:</b></blockquote>\n\n"
                 f"<blockquote><b>🌍 Country:</b> {flag} {name}</blockquote>\n\n"
                 f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n"
-                "<blockquote>• You will be notified automatically when SMS arrives</blockquote>"
+                "<blockquote>• You will be notified when SMS arrives</blockquote>"
             )
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)]
             ])
-            await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
+            # Edits message directly, cleaner than sending new one
+            try:
+                await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
+            except:
+                pass
         else:
             await query.edit_message_text("<b>😔 Number taken or unavailable.</b>", parse_mode=ParseMode.HTML)
             
@@ -649,14 +673,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         action, target_id, amount = parts[1], parts[2], float(parts[3])
         
         if action == 'approve':
-            await context.bot.send_message(chat_id=target_id, text=f"✅ Withdrawal of ${amount} Approved!")
+            await context.bot.send_message(chat_id=target_id, text=f"✅ Withdrawal of ${amount:.3f} Approved!")
             await query.edit_message_text(f"{query.message.text}\n\n✅ APPROVED", parse_mode=ParseMode.HTML)
         else:
             user = USERS_CACHE.get(target_id)
             if user:
                 user['balance'] += amount
-                asyncio.to_thread(background_save_users)
-            await context.bot.send_message(chat_id=target_id, text=f"❌ Withdrawal of ${amount} Declined (Refunded).")
+                await asyncio.to_thread(background_save_users)
+            await context.bot.send_message(chat_id=target_id, text=f"❌ Withdrawal of ${amount:.3f} Declined (Refunded).")
             await query.edit_message_text(f"{query.message.text}\n\n❌ DECLINED", parse_mode=ParseMode.HTML)
 
 async def sms_watcher_task(application: Application):
@@ -726,7 +750,7 @@ async def sms_watcher_task(application: Application):
                         
                     except: pass
             
-            if dirty: asyncio.to_thread(background_save_users)
+            if dirty: await asyncio.to_thread(background_save_users)
             save_sent_sms_keys(sent_keys)
             
         except Exception as e:
@@ -735,8 +759,8 @@ async def sms_watcher_task(application: Application):
         await asyncio.sleep(15)
 
 async def main_bot_loop():
-    load_users_cache()
-    clean_numbers_file()
+    load_users_cache() # Load cache on start
+    clean_numbers_file() # Clean DB on start
     
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
