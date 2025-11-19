@@ -283,25 +283,18 @@ def get_number_from_file_for_platform(country, platform):
         
         for i, line in enumerate(lines):
             try:
-                # Try to parse line as JSON
                 number_info = json.loads(line)
                 if (number_info.get("country") == country and 
                     number_info.get("platform") == platform):
                     
                     number = number_info.get("number")
                     if number:
-                        # Found match, delete from file
                         lines.pop(i)
                         with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                             for remaining_line in lines:
                                 f.write(remaining_line + "\n")
                         return number
             except json.JSONDecodeError:
-                # Fallback for old format numbers (plain text)
-                # If the line is just a number, it doesn't have country info.
-                # It will only match if we assume a default, which causes issues.
-                # We will only match if the user is explicitly looking for "Kenya"/"WhatsApp" (default)
-                # OR if you want to handle legacy numbers differently.
                 if country == "Kenya": 
                     number = line
                     if number:
@@ -944,7 +937,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<blockquote>Click the 🎁 Get Number button below to get your number:</blockquote>\n\n"
     )
 
-    await update.message.reply_text(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
+    await context.bot.send_message(
+        chat_id=user_id, 
+        text=welcome_text, 
+        reply_markup=get_main_menu_keyboard(), 
+        parse_mode=ParseMode.HTML
+    )
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1061,26 +1059,22 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         return
 
     elif query.data.startswith('user_country_'):
-        # Check if user already has a number
         if len(user_data.get('phone_numbers', [])) > 0:
             await query.answer("⚠️ You already have a number. Please delete it first.", show_alert=True)
             return
 
-        flag = query.data.split('user_country_')[1]
+        # FIX: Safely extract flag without splitting by potentially incorrect separator
+        flag = query.data.replace('user_country_', '')
         country_name = COUNTRIES.get(flag, "Unknown")
         
-        # Check if session expired (platform not selected)
+        # FIX: Check for missing platform session data (e.g. after restart)
         platform = context.user_data.get('selected_platform')
         if not platform:
              await query.answer("⚠️ Session expired. Please select platform again.", show_alert=True)
-             try:
-                 await query.message.delete()
-             except:
-                 pass
+             # Send fresh start message
              await start_command(update, context)
              return
         
-        # Check cooldown
         cooldown = 5
         last_time = user_data.get('last_number_time', 0)
         current_time = time.time()
@@ -1127,7 +1121,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "<blockquote>• You will be notified automatically when SMS arrives</blockquote></blockquote>"
         )
         
-        # Directly edit message with success text
         try:
             await query.edit_message_text(
                 success_text,
@@ -1264,13 +1257,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("❌ Number already deleted or not found.", show_alert=True)
 
     elif query.data.startswith('change_number_'):
-        # User wants to swap. Check limit logic.
-        # If limit is strict 1 number, user must delete first OR we swap automatically.
-        # Based on user request "without deleting user can't get another", strict logic applies.
-        # However, "Change Number" implies a swap. 
-        # If we strictly block here, the button is useless.
-        # So we will auto-delete OLD number and add NEW number.
-        
+        if len(user_data.get('phone_numbers', [])) > 0:
+             await query.answer("⚠️ Please delete your current number first.", show_alert=True)
+             return
+             
         parts = query.data.split('_')
         if len(parts) >= 4:
             country_name = '_'.join(parts[2:-1])
@@ -1286,7 +1276,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             
             number = await asyncio.to_thread(get_number_from_file_for_platform, country_name, platform)
             if number:
-                # Remove ALL old numbers first to ensure limit of 1 is kept
                 user_data["phone_numbers"] = [] 
                 
                 user_data["phone_numbers"].append(number)
@@ -1323,7 +1312,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                     pass
 
             else:
-                await query.answer("😔 No numbers available right now.", show_alert=True)
+                await context.bot.send_message(chat_id=user_id, text="<blockquote><b>😔 No numbers are available right now. Please try again later.</b></blockquote>", parse_mode=ParseMode.HTML)
                 try:
                     await context.bot.send_message(chat_id=ADMIN_ID, text="<blockquote><b>⚠️ Admin Alert: The bot is out of numbers! Please add new numbers.</b></blockquote>", parse_mode=ParseMode.HTML)
                 except Exception as e:
@@ -1582,10 +1571,6 @@ async def sms_watcher_task(application: Application):
                             f"📝 <b>Full Message:</b>\n\n"
                             f"<blockquote>{html_escape(message)}</blockquote>"
                         )
-                        
-                        group_keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
-                        ])
 
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 
