@@ -52,75 +52,81 @@ PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')
 # --- Global File Lock ---
 FILE_LOCK = threading.Lock()
 
-# Available Countries
-COUNTRIES = {
-    "🇦🇨": "Ascension Island", "🇦🇩": "Andorra", "🇦🇪": "United Arab Emirates", "🇦🇫": "Afghanistan",
-    "🇦🇬": "Antigua and Barbuda", "🇦🇮": "Anguilla", "🇦🇱": "Albania", "🇦🇲": "Armenia",
-    "🇦🇴": "Angola", "🇦🇶": "Antarctica", "🇦🇷": "Argentina", "🇦🇸": "American Samoa",
-    "🇦🇹": "Austria", "🇦🇺": "Australia", "🇦🇼": "Aruba", "🇦🇽": "Aland Islands",
-    "🇦🇿": "Azerbaijan", "🇧🇦": "Bosnia and Herzegovina", "🇧🇧": "Barbados", "🇧🇩": "Bangladesh",
-    "🇧🇪": "Belgium", "🇧🇫": "Burkina Faso", "🇧🇬": "Bulgaria", "🇧🇭": "Bahrain",
-    "🇧🇮": "Burundi", "🇧🇯": "Benin", "🇧🇱": "Saint Barthelemy", "🇧🇲": "Bermuda",
-    "🇧🇳": "Brunei", "🇧🇴": "Bolivia", "🇧🇶": "Caribbean Netherlands", "🇧🇷": "Brazil",
-    "🇧🇸": "Bahamas", "🇧🇹": "Bhutan", "🇧🇻": "Bouvet Island", "🇧🇼": "Botswana",
-    "🇧🇾": "Belarus", "🇧🇿": "Belize", "🇨🇦": "Canada", "🇨🇨": "Cocos (Keeling) Islands",
-    "🇨🇩": "DR Congo", "🇨🇫": "Central African Republic", "🇨🇬": "Congo", "🇨🇭": "Switzerland",
-    "🇨🇮": "Ivory Coast", "🇨🇰": "Cook Islands", "🇨🇱": "Chile", "🇨🇲": "Cameroon",
-    "🇨🇳": "China", "🇨🇴": "Colombia", "🇨🇵": "Clipperton Island", "🇨🇷": "Costa Rica",
-    "🇨🇺": "Cuba", "🇨🇻": "Cape Verde", "🇨🇼": "Curaçao", "🇨🇽": "Christmas Island",
-    "🇨🇾": "Cyprus", "🇨🇿": "Czech Republic", "🇩🇪": "Germany", "🇩🇬": "Diego Garcia",
-    "🇩🇯": "Djibouti", "🇩🇰": "Denmark", "🇩🇲": "Dominica", "🇩🇴": "Dominican Republic",
-    "🇩🇿": "Algeria", "🇪🇦": "Ceuta & Melilla", "🇪🇨": "Ecuador", "🇪🇪": "Estonia",
-    "🇪🇬": "Egypt", "🇪🇭": "Western Sahara", "🇪🇷": "Eritrea", "🇪🇸": "Spain",
-    "🇪🇹": "Ethiopia", "🇪🇺": "European Union", "🇫🇮": "Finland", "🇫🇯": "Fiji",
-    "🇫🇰": "Falkland Islands (Malvinas)", "🇫🇲": "Micronesia", "🇫🇴": "Faroe Islands", "🇫🇷": "France",
-    "🇬🇦": "Gabon", "🇬🇧": "United Kingdom", "🇬🇩": "Grenada", "🇬🇪": "Georgia",
-    "🇬🇫": "French Guiana", "🇬🇬": "Guernsey", "🇬🇭": "Ghana", "🇬🇮": "Gibraltar",
-    "🇬🇱": "Greenland", "🇬🇲": "Gambia", "🇬🇳": "Guinea", "🇬🇵": "Guadeloupe",
-    "🇬🇶": "Equatorial Guinea", "🇬🇷": "Greece", "🇬🇸": "South Georgia and the South Sandwich Islands", "🇬🇹": "Guatemala",
-    "🇬🇺": "Guam", "🇬🇼": "Guinea-Bissau", "🇬🇾": "Guyana", "🇭🇰": "Hong Kong",
-    "🇭🇲": "Heard Island and McDonald Islands", "🇭🇳": "Honduras", "🇭🇷": "Croatia", "🇭🇹": "Haiti",
-    "🇭🇺": "Hungary", "🇮🇨": "Canary Islands", "🇮🇩": "Indonesia", "🇮🇪": "Ireland",
-    "🇮🇱": "Israel", "🇮🇲": "Isle of Man", "🇮🇳": "India", "🇮🇴": "British Indian Ocean Territory",
-    "🇮🇶": "Iraq", "🇮🇷": "Iran", "🇮🇸": "Iceland", "🇮🇹": "Italy",
-    "🇯🇪": "Jersey", "🇯🇲": "Jamaica", "🇯🇴": "Jordan", "🇯🇵": "Japan",
-    "🇰🇪": "Kenya", "🇰🇬": "Kyrgyzstan", "🇰🇭": "Cambodia", "🇰🇮": "Kiribati",
-    "🇰🇲": "Comoros", "🇰🇳": "Saint Kitts and Nevis", "🇰🇵": "North Korea", "🇰🇷": "South Korea",
-    "🇰🇼": "Kuwait", "🇰🇾": "Cayman Islands", "🇰🇿": "Kazakhstan", "🇱🇦": "Laos",
-    "🇱🇧": "Lebanon", "🇱🇨": "Saint Lucia", "🇱🇮": "Liechtenstein", "🇱🇰": "Sri Lanka",
-    "🇱🇷": "Liberia", "🇱🇸": "Lesotho", "🇱🇹": "Lithuania", "🇱🇺": "Luxembourg",
-    "🇱🇻": "Latvia", "🇱🇾": "Libya", "🇲🇦": "Morocco", "🇲🇨": "Monaco",
-    "🇲🇩": "Moldova", "🇲🇪": "Montenegro", "🇲🇫": "Saint Martin", "🇲🇬": "Madagascar",
-    "🇲🇭": "Marshall Islands", "🇲🇰": "North Macedonia", "🇲🇱": "Mali", "🇲🇲": "Myanmar",
-    "🇲🇳": "Mongolia", "🇲🇴": "Macao", "🇲🇵": "Northern Mariana Islands", "🇲🇶": "Martinique",
-    "🇲🇷": "Mauritania", "🇲🇸": "Montserrat", "🇲🇹": "Malta", "🇲🇺": "Mauritius",
-    "🇲🇻": "Maldives", "🇲🇼": "Malawi", "🇲🇽": "Mexico", "🇲🇾": "Malaysia",
-    "🇲🇿": "Mozambique", "🇳🇦": "Namibia", "🇳🇨": "New Caledonia", "🇳🇪": "Niger",
-    "🇳🇫": "Norfolk Island", "🇳🇬": "Nigeria", "🇳🇮": "Nicaragua", "🇳🇱": "Netherlands",
-    "🇳🇴": "Norway", "🇳🇵": "Nepal", "🇳🇷": "Nauru", "🇳🇺": "Niue",
-    "🇳🇿": "New Zealand", "🇴🇲": "Oman", "🇵🇦": "Panama", "🇵🇪": "Peru",
-    "🇵🇫": "French Polynesia", "🇵🇬": "Papua New Guinea", "🇵🇭": "Philippines", "🇵🇰": "Pakistan",
-    "🇵🇱": "Poland", "🇵🇲": "Saint Pierre and Miquelon", "🇵🇳": "Pitcairn Islands", "🇵🇷": "Puerto Rico",
-    "🇵🇸": "Palestine", "🇵🇹": "Portugal", "🇵🇼": "Palau", "🇵🇾": "Paraguay",
-    "🇶🇦": "Qatar", "🇷🇪": "Reunion", "🇷🇴": "Romania", "🇷🇸": "Serbia",
-    "🇷🇺": "Russia", "🇷🇼": "Rwanda", "🇸🇦": "Saudi Arabia", "🇸🇧": "Solomon Islands",
-    "🇸🇨": "Seychelles", "🇸🇩": "Sudan", "🇸🇪": "Sweden", "🇸🇬": "Singapore",
-    "🇸🇭": "St. Helena", "🇸🇮": "Slovenia", "🇸🇯": "Svalbard and Jan Mayen", "🇸🇰": "Slovakia",
-    "🇸🇱": "Sierra Leone", "🇸🇲": "San Marino", "🇸🇳": "Senegal", "🇸🇴": "Somalia",
-    "🇸🇷": "Suriname", "🇸🇸": "South Sudan", "🇸🇹": "Sao Tome and Principe", "🇸🇻": "El Salvador",
-    "🇸🇽": "Sint Maarten", "🇸🇾": "Syria", "🇸🇿": "Eswatini", "🇹🇦": "Tristan da Cunha",
-    "🇹🇨": "Turks and Caicos Islands", "🇹🇩": "Chad", "🇹🇫": "French Southern Territories", "🇹🇬": "Togo",
-    "🇹🇭": "Thailand", "🇹🇯": "Tajikistan", "🇹🇰": "Tokelau", "🇹🇱": "Timor-Leste",
-    "🇹🇲": "Turkmenistan", "🇹🇳": "Tunisia", "🇹🇴": "Tonga", "🇹🇷": "Turkey",
-    "🇹🇹": "Trinidad & Tobago", "🇹🇻": "Tuvalu", "🇹🇼": "Taiwan", "🇹🇿": "Tanzania",
-    "🇺🇦": "Ukraine", "🇺🇬": "Uganda", "🇺🇲": "United States Outlying Islands", "🇺🇳": "United Nations",
-    "🇺🇸": "United States", "🇺🇾": "Uruguay", "🇺🇿": "Uzbekistan", "🇻🇦": "Vatican City",
-    "🇻🇨": "Saint Vincent and the Grenadines", "🇻🇪": "Venezuela", "🇻🇬": "British Virgin Islands", "🇻🇮": "United States Virgin Islands",
-    "🇻🇳": "Vietnam", "🇻🇺": "Vanuatu", "🇼🇫": "Wallis and Futuna", "🇼🇸": "Samoa",
-    "🇽🇰": "Kosovo", "🇾🇪": "Yemen", "🇾🇹": "Mayotte", "🇿🇦": "South Africa",
-    "🇿🇲": "Zambia", "🇿🇼": "Zimbabwe", "🏴󠁧󠁢󠁥󠁮󠁧󠁿": "England", "🏴󠁧󠁢󠁳󠁣󠁴󠁿": "Scotland",
-    "🏴󠁧󠁢󠁷󠁬󠁳󠁿": "Wales"
+# --- Country Detection Logic (MOVED TO TOP TO FIX NameError) ---
+# Mapping of Country Code -> (Country Name, Flag)
+COUNTRY_PREFIXES = {
+    "1": ("United States", "🇺🇸"), "7": ("Russia", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
+    "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
+    "34": ("Spain", "🇪🇸"), "36": ("Hungary", "🇭🇺"), "39": ("Italy", "🇮🇹"), "40": ("Romania", "🇷🇴"),
+    "41": ("Switzerland", "🇨🇭"), "43": ("Austria", "🇦🇹"), "44": ("United Kingdom", "🇬🇧"), "45": ("Denmark", "🇩🇰"),
+    "46": ("Sweden", "🇸🇪"), "47": ("Norway", "🇳🇴"), "48": ("Poland", "🇵🇱"), "49": ("Germany", "🇩🇪"),
+    "51": ("Peru", "🇵🇪"), "52": ("Mexico", "🇲🇽"), "53": ("Cuba", "🇨🇺"), "54": ("Argentina", "🇦🇷"),
+    "55": ("Brazil", "🇧🇷"), "56": ("Chile", "🇨🇱"), "57": ("Colombia", "🇨🇴"), "58": ("Venezuela", "🇻🇪"),
+    "60": ("Malaysia", "🇲🇾"), "61": ("Australia", "🇦🇺"), "62": ("Indonesia", "🇮🇩"), "63": ("Philippines", "🇵🇭"),
+    "64": ("New Zealand", "🇳🇿"), "65": ("Singapore", "🇸🇬"), "66": ("Thailand", "🇹🇭"), "81": ("Japan", "🇯🇵"),
+    "82": ("South Korea", "🇰🇷"), "84": ("Vietnam", "🇻🇳"), "86": ("China", "🇨🇳"), "90": ("Turkey", "🇹🇷"),
+    "91": ("India", "🇮🇳"), "92": ("Pakistan", "🇵🇰"), "93": ("Afghanistan", "🇦🇫"), "94": ("Sri Lanka", "🇱🇰"),
+    "95": ("Myanmar", "🇲🇲"), "98": ("Iran", "🇮🇷"), "212": ("Morocco", "🇲🇦"), "213": ("Algeria", "🇩🇿"),
+    "216": ("Tunisia", "🇹🇳"), "218": ("Libya", "🇱🇾"), "220": ("Gambia", "🇬🇲"), "221": ("Senegal", "🇸🇳"),
+    "222": ("Mauritania", "🇲🇷"), "223": ("Mali", "🇲🇱"), "224": ("Guinea", "🇬🇳"), "225": ("Ivory Coast", "🇨🇮"),
+    "226": ("Burkina Faso", "🇧🇫"), "227": ("Niger", "🇳🇪"), "228": ("Togo", "🇹🇬"), "229": ("Benin", "🇧🇯"),
+    "230": ("Mauritius", "🇲🇺"), "231": ("Liberia", "🇱🇷"), "232": ("Sierra Leone", "🇸🇱"), "233": ("Ghana", "🇬🇭"),
+    "234": ("Nigeria", "🇳🇬"), "235": ("Chad", "🇹🇩"), "236": ("Central African Republic", "🇨🇫"), "237": ("Cameroon", "🇨🇲"),
+    "238": ("Cape Verde", "🇨🇻"), "239": ("Sao Tome and Principe", "🇸🇹"), "240": ("Equatorial Guinea", "🇬🇶"), "241": ("Gabon", "🇬🇦"),
+    "242": ("Congo", "🇨🇬"), "243": ("Congo", "🇨🇩"), "244": ("Angola", "🇦🇴"), "245": ("Guinea-Bissau", "🇬🇼"),
+    "246": ("British Indian Ocean Territory", "🇮🇴"), "248": ("Seychelles", "🇸🇨"), "249": ("Sudan", "🇸🇩"), "250": ("Rwanda", "🇷🇼"),
+    "251": ("Ethiopia", "🇪🇹"), "252": ("Somalia", "🇸🇴"), "253": ("Djibouti", "🇩🇯"), "254": ("Kenya", "🇰🇪"),
+    "255": ("Tanzania", "🇹🇿"), "256": ("Uganda", "🇺🇬"), "257": ("Burundi", "🇧🇮"), "258": ("Mozambique", "🇲🇿"),
+    "260": ("Zambia", "🇿🇲"), "261": ("Madagascar", "🇲🇬"), "262": ("Reunion", "🇷🇪"), "263": ("Zimbabwe", "🇿🇼"),
+    "264": ("Namibia", "🇳🇦"), "265": ("Malawi", "🇲🇼"), "266": ("Lesotho", "🇱🇸"), "267": ("Botswana", "🇧🇼"),
+    "268": ("Eswatini", "🇸🇿"), "269": ("Comoros", "🇰🇲"), "290": ("Saint Helena", "🇸🇭"), "291": ("Eritrea", "🇪🇷"),
+    "297": ("Aruba", "🇦🇼"), "298": ("Faroe Islands", "🇫🇴"), "299": ("Greenland", "🇬🇱"), "350": ("Gibraltar", "🇬🇮"),
+    "351": ("Portugal", "🇵🇹"), "352": ("Luxembourg", "🇱🇺"), "353": ("Ireland", "🇮🇪"), "354": ("Iceland", "🇮🇸"),
+    "355": ("Albania", "🇦🇱"), "356": ("Malta", "🇲🇹"), "357": ("Cyprus", "🇨🇾"), "358": ("Finland", "🇫🇮"),
+    "359": ("Bulgaria", "🇧🇬"), "370": ("Lithuania", "🇱🇹"), "371": ("Latvia", "🇱🇻"), "372": ("Estonia", "🇪🇪"),
+    "373": ("Moldova", "🇲🇩"), "374": ("Armenia", "🇦🇲"), "375": ("Belarus", "🇧🇾"), "376": ("Andorra", "🇦🇩"),
+    "377": ("Monaco", "🇲🇨"), "378": ("San Marino", "🇸🇲"), "380": ("Ukraine", "🇺🇦"), "381": ("Serbia", "🇷🇸"),
+    "382": ("Montenegro", "🇲🇪"), "383": ("Kosovo", "🇽🇰"), "385": ("Croatia", "🇭🇷"), "386": ("Slovenia", "🇸🇮"),
+    "387": ("Bosnia and Herzegovina", "🇧🇦"), "389": ("North Macedonia", "🇲🇰"), "420": ("Czech Republic", "🇨🇿"),
+    "421": ("Slovakia", "🇸🇰"), "423": ("Liechtenstein", "🇱🇮"), "500": ("Falkland Islands", "🇫🇰"),
+    "501": ("Belize", "🇧🇿"), "502": ("Guatemala", "🇬🇹"), "503": ("El Salvador", "🇸🇻"), "504": ("Honduras", "🇭🇳"),
+    "505": ("Nicaragua", "🇳🇮"), "506": ("Costa Rica", "🇨🇷"), "507": ("Panama", "🇵🇦"), "508": ("Saint Pierre and Miquelon", "🇵🇲"),
+    "509": ("Haiti", "🇭🇹"), "590": ("Guadeloupe", "🇬🇵"), "591": ("Bolivia", "🇧🇴"), "592": ("Guyana", "🇬🇾"),
+    "593": ("Ecuador", "🇪🇨"), "594": ("French Guiana", "🇬🇫"), "595": ("Paraguay", "🇵🇾"), "596": ("Martinique", "🇲🇶"),
+    "597": ("Suriname", "🇸🇷"), "598": ("Uruguay", "🇺🇾"), "599": ("Netherlands Antilles", "🇳🇱"), "670": ("Timor-Leste", "🇹🇱"),
+    "672": ("Australian External Territories", "🇦🇺"), "673": ("Brunei", "🇧🇳"), "674": ("Nauru", "🇳🇷"),
+    "675": ("Papua New Guinea", "🇵🇬"), "676": ("Tonga", "🇹🇴"), "677": ("Solomon Islands", "🇸🇧"), "678": ("Vanuatu", "🇻🇺"),
+    "679": ("Fiji", "🇫🇯"), "680": ("Palau", "🇵🇼"), "681": ("Wallis and Futuna", "🇼🇫"), "682": ("Cook Islands", "🇨🇰"),
+    "683": ("Niue", "🇳🇺"), "684": ("American Samoa", "🇦🇸"), "685": ("Samoa", "🇼🇸"), "686": ("Kiribati", "🇰🇮"),
+    "687": ("New Caledonia", "🇳🇨"), "688": ("Tuvalu", "🇹🇻"), "689": ("French Polynesia", "🇵🇫"), "690": ("Tokelau", "🇹🇰"),
+    "691": ("Micronesia", "🇫🇲"), "692": ("Marshall Islands", "🇲🇭"), "850": ("North Korea", "🇰🇵"), "852": ("Hong Kong", "🇭🇰"),
+    "853": ("Macau", "🇲🇴"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"), "880": ("Bangladesh", "🇧🇩"),
+    "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"), "962": ("Jordan", "🇯🇴"),
+    "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"), "966": ("Saudi Arabia", "🇸🇦"),
+    "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇵🇸"), "971": ("United Arab Emirates", "🇦🇪"),
+    "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"), "975": ("Bhutan", "🇧🇹"),
+    "976": ("Mongolia", "🇲🇳"), "977": ("Nepal", "🇳🇵"), "992": ("Tajikistan", "🇹🇯"), "993": ("Turkmenistan", "🇹🇲"),
+    "994": ("Azerbaijan", "🇦🇿"), "995": ("Georgia", "🇬🇪"), "996": ("Kyrgyzstan", "🇰🇬"), "998": ("Uzbekistan", "🇺🇿"),
 }
+
+def detect_country_from_phone(phone):
+    """Detect country from phone number prefix, returns (Name, Flag)"""
+    if not phone:
+        return "Unknown", "🌍"
+    
+    phone_str = str(phone).replace("+", "").replace(" ", "").replace("-", "")
+    
+    # Try different prefix lengths (longest first)
+    for length in [3, 2, 1]:
+        if len(phone_str) >= length:
+            prefix = phone_str[:length]
+            if prefix in COUNTRY_PREFIXES:
+                return COUNTRY_PREFIXES[prefix]
+    
+    return "Unknown", "🌍"
+
+# Available Countries (Kept for compatibility if needed, but prefix logic is primary now)
+COUNTRIES = {k: f"{v[1]} {v[0]}" for k, v in COUNTRY_PREFIXES.items()} # Simple reverse map not needed really, mainly for display
 
 # Available Social Media Platforms
 SOCIAL_PLATFORMS = [
@@ -470,23 +476,14 @@ def get_number_info(phone_number):
             line = line.strip()
             if not line:
                 continue
-            try:
-                number_info = json.loads(line)
-                if number_info.get("number") == phone_number:
-                    country = number_info.get("country")
-                    platform = number_info.get("platform")
-                    flag = None
-                    if country:
-                        for f, c in COUNTRIES.items():
-                            if c == country:
-                                flag = f
-                                break
-                    return country, platform, flag
-            except:
-                if line == phone_number:
-                    return "Kenya", "WhatsApp", "🇰🇪"
+            # Only try to match number since file is plain numbers now
+            if line == phone_number:
+                 detected_name, detected_flag = detect_country_from_phone(phone_number)
+                 return detected_name, "Any", detected_flag
     
-    return None, None, None
+    # If not found in file but is a valid number, detect anyway
+    detected_name, detected_flag = detect_country_from_phone(phone_number)
+    return detected_name, "Any", detected_flag
 
 def html_escape(text):
     return str(text).replace('<', '&lt;').replace('>', '&gt;')
