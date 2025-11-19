@@ -22,8 +22,8 @@ CONFIG_FILE = 'config.txt'
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        logging.critical(f"{CONFIG_FILE} not found! Please create it before running the bot.")
-        raise FileNotFoundError(f"{CONFIG_FILE} not found! Please create it.")
+        print(f"CRITICAL: {CONFIG_FILE} not found! Please create it.")
+        sys.exit(1)
         
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -41,8 +41,8 @@ GROUP_ID = -1003009605120
 PAYMENT_CHANNEL_ID = -1003184589906
 ADMIN_ID = 5473188537
 GROUP_LINK = "https://t.me/pgotp"
-SMS_AMOUNT = 0.03  # $0.03 per OTP
-WITHDRAWAL_LIMIT = 1.0  # Minimum $1.00 to withdraw
+SMS_AMOUNT = 0.03
+WITHDRAWAL_LIMIT = 1.0
 
 # New Panel Credentials
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
@@ -50,7 +50,6 @@ PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
 PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')
 
 # --- Global File Lock ---
-# This is crucial to prevent database corruption when multiple users access the file
 FILE_LOCK = threading.Lock()
 
 # Available Countries
@@ -148,8 +147,8 @@ manager_instance = None
 MESSAGE_QUEUE = asyncio.Queue()
 LAST_SESSION_FAILURE_NOTIFICATION = 0
 
-# Setup logging
-logging.basicConfig(filename='bot_error.log', level=logging.ERROR, format='%(asctime)s %(levelname)s %(message)s')
+# Setup logging to TERMINAL
+logging.basicConfig(stream=sys.stdout, level=logging.ERROR, format='%(asctime)s %(levelname)s %(message)s')
 
 # Disable HTTP request logging
 logging.getLogger('telegram').setLevel(logging.ERROR)
@@ -271,6 +270,7 @@ def extract_otp_from_text(text):
 
 def get_number_from_file_for_platform(country, platform):
     if not os.path.exists(NUMBERS_FILE):
+        print(f"DEBUG: {NUMBERS_FILE} does not exist.")
         return None
     
     with FILE_LOCK:
@@ -278,30 +278,42 @@ def get_number_from_file_for_platform(country, platform):
             lines = [line.strip() for line in f if line.strip()]
         
         if not lines:
+            print("DEBUG: Numbers file is empty.")
             return None
         
         for i, line in enumerate(lines):
             try:
+                # Try to parse line as JSON
                 number_info = json.loads(line)
                 if (number_info.get("country") == country and 
                     number_info.get("platform") == platform):
+                    
                     number = number_info.get("number")
                     if number:
+                        # Found match, delete from file
                         lines.pop(i)
                         with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                             for remaining_line in lines:
                                 f.write(remaining_line + "\n")
                         return number
-            except:
-                if country == "Kenya":
+            except json.JSONDecodeError:
+                # Fallback for old format numbers (plain text)
+                # If the line is just a number, it doesn't have country info.
+                # It will only match if we assume a default, which causes issues.
+                # We will only match if the user is explicitly looking for "Kenya"/"WhatsApp" (default)
+                # OR if you want to handle legacy numbers differently.
+                if country == "Kenya": 
                     number = line
                     if number:
-                        lines.pop(i)
-                        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+                         lines.pop(i)
+                         with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                             for remaining_line in lines:
                                 f.write(remaining_line + "\n")
-                        return number
-    
+                         return number
+            except Exception as e:
+                print(f"DEBUG: Error processing line '{line}': {e}")
+
+    print(f"DEBUG: No number found for {country} - {platform}")
     return None
 
 def add_number_to_file(number, country=None, platform=None):
@@ -479,7 +491,6 @@ def get_admin_social_keyboard(selected_platforms=None):
     return InlineKeyboardMarkup(keyboard)
 
 def get_main_menu_keyboard():
-    # Use ReplyKeyboardMarkup for persistent buttons
     keyboard = [
         [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
     ]
@@ -1050,6 +1061,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         return
 
     elif query.data.startswith('user_country_'):
+        # Check if user already has a number
         if len(user_data.get('phone_numbers', [])) > 0:
             await query.answer("⚠️ You already have a number. Please delete it first.", show_alert=True)
             return
@@ -1057,7 +1069,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         flag = query.data.split('user_country_')[1]
         country_name = COUNTRIES.get(flag, "Unknown")
         
-        # --- KEY FIX: Check for missing platform session data ---
+        # Check if session expired (platform not selected)
         platform = context.user_data.get('selected_platform')
         if not platform:
              await query.answer("⚠️ Session expired. Please select platform again.", show_alert=True)
@@ -1101,6 +1113,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         change_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
             [InlineKeyboardButton("🗑️ Delete Number", callback_data=f"delete_number_{number}")],
+            [InlineKeyboardButton("🔄 Change Number", callback_data=f"change_number_{country_name}_{platform}")],
             [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
         ])
         
@@ -1251,10 +1264,13 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("❌ Number already deleted or not found.", show_alert=True)
 
     elif query.data.startswith('change_number_'):
-        if len(user_data.get('phone_numbers', [])) > 0:
-             await query.answer("⚠️ Please delete your current number first.", show_alert=True)
-             return
-             
+        # User wants to swap. Check limit logic.
+        # If limit is strict 1 number, user must delete first OR we swap automatically.
+        # Based on user request "without deleting user can't get another", strict logic applies.
+        # However, "Change Number" implies a swap. 
+        # If we strictly block here, the button is useless.
+        # So we will auto-delete OLD number and add NEW number.
+        
         parts = query.data.split('_')
         if len(parts) >= 4:
             country_name = '_'.join(parts[2:-1])
@@ -1270,8 +1286,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             
             number = await asyncio.to_thread(get_number_from_file_for_platform, country_name, platform)
             if number:
+                # Remove ALL old numbers first to ensure limit of 1 is kept
+                user_data["phone_numbers"] = [] 
+                
                 user_data["phone_numbers"].append(number)
-                user_data["phone_numbers"] = user_data["phone_numbers"][-3:]
                 user_data["last_number_time"] = current_time
                 users_data[user_id] = user_data
                 save_json_data(USERS_FILE, users_data)
@@ -1285,6 +1303,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 change_keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
                     [InlineKeyboardButton("🗑️ Delete Number", callback_data=f"delete_number_{number}")],
+                    [InlineKeyboardButton("🔄 Change Number", callback_data=f"change_number_{country_name}_{platform}")],
                     [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
                 ])
                 
@@ -1294,23 +1313,17 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                                f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n" \
                                f"<blockquote><b>OTP will be sent to your inbox.</b></blockquote>"
                                
-                await MESSAGE_QUEUE.put({
-                    'chat_id': user_id,
-                    'text': success_text,
-                    'parse_mode': ParseMode.HTML,
-                    'reply_markup': change_keyboard
-                })
-                
                 try:
                     await query.edit_message_text(
-                        "<blockquote><b>✅ Your number has been sent successfully. Please check your inbox.</b></blockquote>",
-                        parse_mode=ParseMode.HTML
+                        success_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=change_keyboard
                     )
                 except error.BadRequest:
                     pass
 
             else:
-                await context.bot.send_message(chat_id=user_id, text="<blockquote><b>😔 No numbers are available right now. Please try again later.</b></blockquote>", parse_mode=ParseMode.HTML)
+                await query.answer("😔 No numbers available right now.", show_alert=True)
                 try:
                     await context.bot.send_message(chat_id=ADMIN_ID, text="<blockquote><b>⚠️ Admin Alert: The bot is out of numbers! Please add new numbers.</b></blockquote>", parse_mode=ParseMode.HTML)
                 except Exception as e:
@@ -1505,14 +1518,13 @@ async def sms_watcher_task(application: Application):
                     phone_to_user_map[number] = uid
             
             data_changed = False
+            keys_changed = False
 
             with open(SMS_CACHE_FILE, 'r', encoding='utf-8') as f:
                 for line in f:
                     try:
                         sms_data = json.loads(line)
                         phone = sms_data.get('phone')
-                        country = sms_data.get('country', 'N/A')
-                        provider = sms_data.get('provider', 'N/A')
                         message = sms_data.get('message')
                         otp = extract_otp_from_text(message)
                         
@@ -1522,6 +1534,8 @@ async def sms_watcher_task(application: Application):
                         if unique_key in sent_sms_keys:
                             continue
 
+                        country = sms_data.get('country', 'N/A')
+                        provider = sms_data.get('provider', 'N/A')
                         number_country, number_platform, number_flag = get_number_info(phone)
                         
                         if not number_country:
@@ -1535,10 +1549,11 @@ async def sms_watcher_task(application: Application):
                         display_platform = number_platform if number_platform else provider
                         owner_id = phone_to_user_map.get(phone)
                         
-                        group_keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
-                        ])
-                        
+                        service_icon = "📱"
+                        service_name = provider
+                        service_display = "OTP"
+                        code_label = "OTP Code"
+
                         is_instagram = "instagram" in provider.lower() or "instagram" in message.lower()
                         is_whatsapp = "whatsapp" in provider.lower() or "whatsapp" in message.lower()
                         
@@ -1567,6 +1582,10 @@ async def sms_watcher_task(application: Application):
                             f"📝 <b>Full Message:</b>\n\n"
                             f"<blockquote>{html_escape(message)}</blockquote>"
                         )
+                        
+                        group_keyboard = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
+                        ])
 
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 
@@ -1614,14 +1633,16 @@ async def sms_watcher_task(application: Application):
                             sent_sms_keys.add(number_otp_key)
 
                         sent_sms_keys.add(unique_key)
+                        keys_changed = True
 
                     except Exception as e:
                         logging.error(f"Error processing SMS line: {e}")
             
             if data_changed:
                 save_json_data(USERS_FILE, users_data)
-                
-            save_sent_sms_keys(sent_sms_keys)
+            
+            if keys_changed:
+                save_sent_sms_keys(sent_sms_keys)
 
         except Exception as e:
             logging.error(f"Error in sms_watcher_task: {e}")
