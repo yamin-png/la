@@ -5,7 +5,7 @@ import random
 import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, error
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, error
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from telegram.constants import ParseMode
 import logging
@@ -13,7 +13,7 @@ import sys
 import re
 import configparser
 import requests
-import aiohttp # Added for async requests
+import aiohttp
 from bs4 import BeautifulSoup
 import telegram 
 
@@ -23,7 +23,6 @@ CONFIG_FILE = 'config.txt'
 def load_config():
     """
     Loads configuration from config.txt.
-    The file MUST exist. The bot will not create a default one.
     """
     if not os.path.exists(CONFIG_FILE):
         logging.critical(f"{CONFIG_FILE} not found! Please create it before running the bot.")
@@ -51,10 +50,9 @@ WITHDRAWAL_LIMIT = 1.0  # Minimum $1.00 to withdraw
 # New Panel Credentials
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
 PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
-# Prefer PHPSESSID from config if available
-PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')  # Session ID for API access
+PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')
 
-# Available Countries with flags (297 countries)
+# Available Countries
 COUNTRIES = {
     "🇦🇨": "Ascension Island", "🇦🇩": "Andorra", "🇦🇪": "United Arab Emirates", "🇦🇫": "Afghanistan",
     "🇦🇬": "Antigua and Barbuda", "🇦🇮": "Anguilla", "🇦🇱": "Albania", "🇦🇲": "Armenia",
@@ -189,7 +187,6 @@ def save_sent_sms_keys(keys):
 def _send_critical_admin_alert(message):
     """Sends a critical notification to the admin immediately using a sync Bot instance."""
     global LAST_SESSION_FAILURE_NOTIFICATION
-    # Rate limit this critical alert to once every 10 minutes (600 seconds)
     if time.time() - LAST_SESSION_FAILURE_NOTIFICATION < 600:
         return
         
@@ -240,7 +237,6 @@ async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
 def extract_otp_from_text(text):
     if not text: return "N/A"
     patterns = [
-        # 1. Spaced or dashed 6-digit codes (Instagram, WhatsApp)
         r'Instagram.*?code\s*(\d{3}\s+\d{3})',  
         r'Instagram.*?(\d{3}\s+\d{3})',         
         r'#\s*(\d{3}\s+\d{3})',                
@@ -249,16 +245,12 @@ def extract_otp_from_text(text):
         r'WhatsApp.*?(\d{3}-\d{3})',        
         r'code\s*(\d{3}-\d{3})',            
         r'(\d{3}-\d{3})',                   
-        
-        # 2. Specific prefixes / keywords
         r'G-(\d{6})', 
         r'code is\s*(\d+)', 
         r'code:\s*(\d+)', 
         r'verification code[:\s]*(\d+)', 
         r'OTP is\s*(\d+)', 
         r'pin[:\s]*(\d+)',
-        
-        # 3. New 8-digit cases
         r'#\s*(\d{8})\b',                    
         r'\b(\d{8})\b'                      
     ]
@@ -273,12 +265,10 @@ def extract_otp_from_text(text):
             elif 4 <= len(otp) <= 8 and otp.isdigit():  
                 return otp
                 
-    # Fallback for 4-8 digit codes
     fallback_match = re.search(r'\b(\d{4,8})\b', text)
     return fallback_match.group(1) if fallback_match else "N/A"
 
 def get_number_from_file_for_platform(country, platform):
-    """Gets a number from numbers.txt file for specific country and platform, then deletes it."""
     if not os.path.exists(NUMBERS_FILE):
         return None
     
@@ -288,13 +278,11 @@ def get_number_from_file_for_platform(country, platform):
     if not lines:
         return None
     
-    # Find matching number for country and platform
     for i, line in enumerate(lines):
         try:
             number_info = json.loads(line)
             if (number_info.get("country") == country and 
                 number_info.get("platform") == platform):
-                # Found matching number, remove it from file
                 number = number_info.get("number")
                 if number:
                     lines.pop(i)
@@ -315,7 +303,6 @@ def get_number_from_file_for_platform(country, platform):
     return None
 
 def add_number_to_file(number, country=None, platform=None):
-    """Adds a number to numbers.txt file with country and platform info with file locking."""
     file_lock = threading.Lock()
     
     with file_lock:
@@ -350,7 +337,6 @@ def add_number_to_file(number, country=None, platform=None):
                 logging.error(f"Failed to restore file: {restore_error}")
 
 def remove_numbers_for_platforms(country, platforms):
-    """Remove all numbers for specific country and platforms from numbers.txt."""
     file_lock = threading.Lock()
     
     with file_lock:
@@ -491,6 +477,13 @@ def get_admin_social_keyboard(selected_platforms=None):
     
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
     return InlineKeyboardMarkup(keyboard)
+
+def get_main_menu_keyboard():
+    # Use ReplyKeyboardMarkup for persistent buttons
+    keyboard = [
+        [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_user_social_keyboard():
     keyboard = []
@@ -806,10 +799,9 @@ async def rate_limited_sender_task(application: Application):
 
 def get_main_menu_keyboard():
     keyboard = [
-        [InlineKeyboardButton("🎁 Get Number", callback_data='get_number')],
-        [InlineKeyboardButton("👤 Account", callback_data='account')]
+        [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def sms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -940,10 +932,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<blockquote>Click the 🎁 Get Number button below to get your number:</blockquote>\n\n"
     )
 
-    if update.callback_query:
-        await update.callback_query.edit_message_text(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
-    else:
-        await update.message.reply_text(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
+    # Using ReplyKeyboardMarkup (Persistent Keyboard)
+    await update.message.reply_text(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -965,28 +955,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         return
         
     if query.data == 'main_menu':
+        # Delete the inline menu since main menu is in the keyboard
         try:
-            await start_command(update, context)
-        except error.BadRequest:
+            await query.message.delete()
+        except Exception:
             pass
-        return
-
-    if query.data == 'account':
-        balance = user_data.get('balance', 0.0)
-        account_text = (
-            f"<blockquote><b>👤 Your Account</b></blockquote>\n\n"
-            f"<blockquote><b>Name:</b> {html_escape(user_data.get('first_name'))}</blockquote>\n\n"
-            f"<blockquote><b>User:</b> @{user_data.get('username', 'N/A')}</blockquote>\n\n"
-            f"<blockquote><b>💰 Balance:</b> ${balance:.2f}</blockquote>"
-        )
-        keyboard = [
-            [InlineKeyboardButton("💸 Withdraw", callback_data='withdraw')],
-            [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
-        ]
-        try:
-            await query.edit_message_text(account_text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
-        except error.BadRequest:
-            pass
+        # Optionally re-send start message if needed, but usually just clearing is fine.
+        # To be safe and clear state, we can call start_command
+        await start_command(update, context)
         return
 
     if query.data == 'withdraw':
@@ -1063,17 +1039,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             pass
         return
 
-    if query.data == 'get_number':
-        social_text = "<blockquote><b>📱 Which social platform do you want a number for?</b></blockquote>"
-        social_keyboard = get_user_social_keyboard()
-        if len(social_keyboard.inline_keyboard) == 1 and social_keyboard.inline_keyboard[0][0].text == "🔙 Back":
-            social_text = "<blockquote><b>😔 No numbers available at the moment. Please try again later.</b></blockquote>"
-        try:
-            await query.edit_message_text(social_text, reply_markup=social_keyboard, parse_mode=ParseMode.HTML)
-        except error.BadRequest:
-            pass
-        return
-
     elif query.data.startswith('user_social_'):
         platform = query.data.split('user_social_')[1]
         context.user_data['selected_platform'] = platform
@@ -1131,17 +1096,12 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "<blockquote>• You will be notified automatically when SMS arrives</blockquote></blockquote>"
         )
         
-        await MESSAGE_QUEUE.put({
-            'chat_id': user_id,
-            'text': success_text,
-            'parse_mode': ParseMode.HTML,
-            'reply_markup': change_keyboard
-        })
-        
+        # Directly edit the message with the success text
         try:
             await query.edit_message_text(
-                "<blockquote><b>✅ Your number has been sent successfully. Please check your inbox.</b></blockquote>",
-                parse_mode=ParseMode.HTML
+                success_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=change_keyboard
             )
         except error.BadRequest:
             pass
@@ -1292,18 +1252,12 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                                f"<blockquote><b>📱 Platform:</b> {platform}</blockquote>\n\n" \
                                f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n" \
                                f"<blockquote><b>OTP will be sent to your inbox.</b></blockquote>"
-                               
-                await MESSAGE_QUEUE.put({
-                    'chat_id': user_id,
-                    'text': success_text,
-                    'parse_mode': ParseMode.HTML,
-                    'reply_markup': change_keyboard
-                })
                 
                 try:
                     await query.edit_message_text(
-                        "<blockquote><b>✅ Your number has been sent successfully. Please check your inbox.</b></blockquote>",
-                        parse_mode=ParseMode.HTML
+                        success_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=change_keyboard
                     )
                 except error.BadRequest:
                     pass
@@ -1438,12 +1392,49 @@ async def handle_withdrawal_request(update: Update, context: ContextTypes.DEFAUL
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get('state')
+    text = update.message.text
+
     if state == 'ADDING_NUMBER':
         await handle_add_number(update, context)
     elif state == 'AWAITING_WITHDRAWAL_INFO':
         await handle_withdrawal_request(update, context)
     else:
-        await start_command(update, context)
+        # Handle Keyboard Buttons
+        if text == "🎁 Get Number":
+            social_text = "<blockquote><b>📱 Which social platform do you want a number for?</b></blockquote>"
+            social_keyboard = get_user_social_keyboard()
+            if len(social_keyboard.inline_keyboard) == 1 and social_keyboard.inline_keyboard[0][0].text == "🔙 Back":
+                social_text = "<blockquote><b>😔 No numbers available at the moment. Please try again later.</b></blockquote>"
+            try:
+                await update.message.reply_text(social_text, reply_markup=social_keyboard, parse_mode=ParseMode.HTML)
+            except error.BadRequest:
+                pass
+        elif text == "👤 Account":
+            user_id = str(update.effective_user.id)
+            users_data = load_json_data(USERS_FILE, {})
+            user_data = users_data.get(user_id)
+            
+            if not user_data:
+                await update.message.reply_text("<blockquote>❌ Please type /start first.</blockquote>", parse_mode=ParseMode.HTML)
+                return
+
+            balance = user_data.get('balance', 0.0)
+            account_text = (
+                f"<blockquote><b>👤 Your Account</b></blockquote>\n\n"
+                f"<blockquote><b>Name:</b> {html_escape(user_data.get('first_name'))}</blockquote>\n\n"
+                f"<blockquote><b>User:</b> @{user_data.get('username', 'N/A')}</blockquote>\n\n"
+                f"<blockquote><b>💰 Balance:</b> ${balance:.2f}</blockquote>"
+            )
+            keyboard = [
+                [InlineKeyboardButton("💸 Withdraw", callback_data='withdraw')],
+                [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
+            ]
+            try:
+                await update.message.reply_text(account_text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+            except error.BadRequest:
+                pass
+        else:
+            await start_command(update, context)
 
 async def sms_watcher_task(application: Application):
     global manager_instance
