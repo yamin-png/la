@@ -147,8 +147,12 @@ manager_instance = None
 MESSAGE_QUEUE = asyncio.Queue()
 LAST_SESSION_FAILURE_NOTIFICATION = 0
 
-# Setup logging to TERMINAL
-logging.basicConfig(stream=sys.stdout, level=logging.ERROR, format='%(asctime)s %(levelname)s %(message)s')
+# Setup logging to TERMINAL (No file)
+logging.basicConfig(
+    stream=sys.stdout, 
+    level=logging.INFO, # Changed to INFO to see more details in terminal
+    format='%(asctime)s %(levelname)s %(message)s'
+)
 
 # Disable HTTP request logging
 logging.getLogger('telegram').setLevel(logging.ERROR)
@@ -269,6 +273,9 @@ def extract_otp_from_text(text):
     return fallback_match.group(1) if fallback_match else "N/A"
 
 def get_number_from_file_for_platform(country, platform):
+    # DEBUG: Print search criteria
+    print(f"DEBUG: Searching for Country='{country}', Platform='{platform}'")
+
     if not os.path.exists(NUMBERS_FILE):
         print(f"DEBUG: {NUMBERS_FILE} does not exist.")
         return None
@@ -284,20 +291,31 @@ def get_number_from_file_for_platform(country, platform):
         for i, line in enumerate(lines):
             try:
                 number_info = json.loads(line)
-                if (number_info.get("country") == country and 
-                    number_info.get("platform") == platform):
-                    
+                
+                # DEBUG: Print what we found in file (limit output if file is huge)
+                if i < 3: print(f"DEBUG: Checking line {i}: {number_info}")
+
+                # Normalize strings for robust comparison (case insensitive, strip spaces)
+                stored_country = str(number_info.get("country", "")).strip().lower()
+                stored_platform = str(number_info.get("platform", "")).strip().lower()
+                target_country = str(country).strip().lower()
+                target_platform = str(platform).strip().lower()
+
+                if stored_country == target_country and stored_platform == target_platform:
                     number = number_info.get("number")
                     if number:
+                        print(f"DEBUG: MATCH FOUND! Number: {number}")
                         lines.pop(i)
                         with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                             for remaining_line in lines:
                                 f.write(remaining_line + "\n")
                         return number
             except json.JSONDecodeError:
-                if country == "Kenya": 
+                # Handle legacy format fallback (only if strict match failed)
+                if str(country).lower() == "kenya": 
                     number = line
                     if number:
+                         print(f"DEBUG: Legacy match found (Kenya): {number}")
                          lines.pop(i)
                          with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                             for remaining_line in lines:
@@ -306,7 +324,7 @@ def get_number_from_file_for_platform(country, platform):
             except Exception as e:
                 print(f"DEBUG: Error processing line '{line}': {e}")
 
-    print(f"DEBUG: No number found for {country} - {platform}")
+    print(f"DEBUG: No number found for {country} - {platform} after checking {len(lines)} lines.")
     return None
 
 def add_number_to_file(number, country=None, platform=None):
@@ -318,7 +336,7 @@ def add_number_to_file(number, country=None, platform=None):
             "added_date": get_bst_now().isoformat()
         }
         
-        logging.error(f"Adding number to file: {number_info}")
+        logging.info(f"Adding number to file: {number_info}")
         
         existing_content = []
         if os.path.exists(NUMBERS_FILE):
@@ -332,7 +350,7 @@ def add_number_to_file(number, country=None, platform=None):
         try:
             with open(NUMBERS_FILE, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(number_info, ensure_ascii=False) + "\n")
-            logging.error(f"Successfully added number {number} to file")
+            logging.info(f"Successfully added number {number} to file")
         except Exception as e:
             logging.error(f"Error writing to file: {e}")
             try:
@@ -356,6 +374,10 @@ def remove_numbers_for_platforms(country, platforms):
         remaining_lines = []
         removed_count = 0
         
+        # Normalize platforms for comparison
+        target_platforms = {p.lower().strip() for p in platforms}
+        target_country = str(country).strip().lower()
+
         for line in lines:
             line = line.strip()
             if not line:
@@ -364,23 +386,25 @@ def remove_numbers_for_platforms(country, platforms):
             
             try:
                 number_info = json.loads(line)
-                if (number_info.get("country") == country and 
-                    number_info.get("platform") in platforms):
+                stored_country = str(number_info.get("country", "")).strip().lower()
+                stored_platform = str(number_info.get("platform", "")).strip().lower()
+                
+                if stored_country == target_country and stored_platform in target_platforms:
                     removed_count += 1
-                    logging.error(f"Removed number: {number_info}")
+                    logging.info(f"Removed number: {number_info}")
                 else:
                     remaining_lines.append(line + "\n")
             except:
-                if country == "Kenya":
+                if target_country == "kenya": # Legacy fallback removal
                     removed_count += 1
-                    logging.error(f"Removed old format number: {line}")
+                    logging.info(f"Removed old format number: {line}")
                 else:
                     remaining_lines.append(line + "\n")
         
         try:
             with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                 f.writelines(remaining_lines)
-            logging.error(f"Successfully removed {removed_count} numbers from file")
+            logging.info(f"Successfully removed {removed_count} numbers from file")
         except Exception as e:
             logging.error(f"Error writing file after removal: {e}")
             return 0
@@ -392,6 +416,9 @@ def get_available_countries_for_platform(platform):
         return []
     
     countries = set()
+    # Normalize target platform
+    target_platform = str(platform).strip().lower()
+
     with FILE_LOCK:
         with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -400,12 +427,17 @@ def get_available_countries_for_platform(platform):
                     continue
                 try:
                     number_info = json.loads(line)
-                    if number_info.get("platform") == platform:
+                    stored_platform = str(number_info.get("platform", "")).strip().lower()
+                    
+                    if stored_platform == target_platform:
+                        # Store original case country name if possible, but for now we trust what's in file
+                        # Or map it back to COUNTRIES dict if needed. 
+                        # Simple approach: Just take what is in file.
                         country = number_info.get("country")
                         if country:
                             countries.add(country)
                 except:
-                    if platform in ["WhatsApp", "Facebook", "Instagram"]:
+                    if target_platform in ["whatsapp", "facebook", "instagram"]:
                         countries.add("Kenya")
     
     return list(countries)
@@ -415,6 +447,9 @@ def get_number_count_for_country_and_platform(country, platform):
         return 0
     
     count = 0
+    target_country = str(country).strip().lower()
+    target_platform = str(platform).strip().lower()
+
     with FILE_LOCK:
         with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -423,11 +458,13 @@ def get_number_count_for_country_and_platform(country, platform):
                     continue
                 try:
                     number_info = json.loads(line)
-                    if (number_info.get("country") == country and 
-                        number_info.get("platform") == platform):
+                    stored_country = str(number_info.get("country", "")).strip().lower()
+                    stored_platform = str(number_info.get("platform", "")).strip().lower()
+
+                    if stored_country == target_country and stored_platform == target_platform:
                         count += 1
                 except:
-                    if country == "Kenya" and platform in ["WhatsApp", "Facebook", "Instagram"]:
+                    if target_country == "kenya" and target_platform in ["whatsapp", "facebook", "instagram"]:
                         count += 1
     
     return count
@@ -1063,15 +1100,16 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("⚠️ You already have a number. Please delete it first.", show_alert=True)
             return
 
-        # FIX: Safely extract flag without splitting by potentially incorrect separator
         flag = query.data.replace('user_country_', '')
         country_name = COUNTRIES.get(flag, "Unknown")
         
-        # FIX: Check for missing platform session data (e.g. after restart)
         platform = context.user_data.get('selected_platform')
         if not platform:
              await query.answer("⚠️ Session expired. Please select platform again.", show_alert=True)
-             # Send fresh start message
+             try:
+                 await query.message.delete()
+             except:
+                 pass
              await start_command(update, context)
              return
         
