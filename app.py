@@ -273,7 +273,8 @@ def extract_otp_from_text(text):
     return fallback_match.group(1) if fallback_match else "N/A"
 
 def get_number_from_file_for_platform(country, platform):
-    # DEBUG: Print search criteria
+    """Gets a number from numbers.txt file for specific country and platform, then deletes it."""
+    # DEBUG: Print what we are looking for
     print(f"DEBUG: Searching for Country='{country}', Platform='{platform}'")
 
     if not os.path.exists(NUMBERS_FILE):
@@ -288,33 +289,41 @@ def get_number_from_file_for_platform(country, platform):
             print("DEBUG: Numbers file is empty.")
             return None
         
+        # Find matching number for country and platform
         for i, line in enumerate(lines):
             try:
-                # Handle explicit user format: 
-                # {"number": "...", "country": "...", "platform": "...", "added_date": "..."}
+                # Try to parse as JSON (new format)
                 number_info = json.loads(line)
                 
-                # Normalize strings for robust comparison
-                stored_country = str(number_info.get("country", "")).strip().lower()
-                stored_platform = str(number_info.get("platform", "")).strip().lower()
-                target_country = str(country).strip().lower()
-                target_platform = str(platform).strip().lower()
-
-                if stored_country == target_country and stored_platform == target_platform:
+                # Strip spaces to be safe, match user logic
+                if (number_info.get("country", "").strip() == country and 
+                    number_info.get("platform", "").strip() == platform):
+                    
+                    # Found matching number, remove it from file
                     number = number_info.get("number")
                     if number:
                         print(f"DEBUG: MATCH FOUND! Number: {number}")
+                        # Remove this line from file
                         lines.pop(i)
                         with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
                             for remaining_line in lines:
                                 f.write(remaining_line + "\n")
                         return number
             except json.JSONDecodeError:
-                # Fallback for legacy lines (not strict JSON)
-                pass
+                # Handle old format (plain numbers) - assume all are from Kenya
+                if country == "Kenya":
+                    number = line
+                    if number:
+                        print(f"DEBUG: Legacy match found (Kenya): {number}")
+                        # Remove this line from file
+                        lines.pop(i)
+                        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+                            for remaining_line in lines:
+                                f.write(remaining_line + "\n")
+                        return number
             except Exception as e:
-                print(f"DEBUG: Error processing line: {e}")
-
+                 print(f"DEBUG: Error processing line: {e}")
+    
     print(f"DEBUG: No number found for {country} - {platform} after checking {len(lines)} lines.")
     return None
 
@@ -402,6 +411,7 @@ def get_available_countries_for_platform(platform):
         return []
     
     countries = set()
+    # Normalize target platform
     target_platform = str(platform).strip().lower()
 
     with FILE_LOCK:
@@ -1510,20 +1520,17 @@ async def sms_watcher_task(application: Application):
     global manager_instance
     if not manager_instance:
         manager_instance = NewPanelSmsManager()
-    
-    # Load sent keys once at startup to avoid re-reading file constantly
-    sent_sms_keys = load_sent_sms_keys()
-    
+        
     while not shutdown_event.is_set():
         try:
             await asyncio.to_thread(manager_instance.scrape_and_save_all_sms)
             
             if not os.path.exists(SMS_CACHE_FILE):
-                await asyncio.sleep(15) # Ensure consistent delay if file missing
+                await asyncio.sleep(15)
                 continue
 
             users_data = load_json_data(USERS_FILE, {})
-            # sent_sms_keys is managed in memory now
+            sent_sms_keys = load_sent_sms_keys()
             
             phone_to_user_map = {}
             for uid, udata in users_data.items():
@@ -1538,6 +1545,8 @@ async def sms_watcher_task(application: Application):
                     try:
                         sms_data = json.loads(line)
                         phone = sms_data.get('phone')
+                        country = sms_data.get('country', 'N/A')
+                        provider = sms_data.get('provider', 'N/A')
                         message = sms_data.get('message')
                         otp = extract_otp_from_text(message)
                         
@@ -1547,8 +1556,6 @@ async def sms_watcher_task(application: Application):
                         if unique_key in sent_sms_keys:
                             continue
 
-                        country = sms_data.get('country', 'N/A')
-                        provider = sms_data.get('provider', 'N/A')
                         number_country, number_platform, number_flag = get_number_info(phone)
                         
                         if not number_country:
@@ -1562,11 +1569,10 @@ async def sms_watcher_task(application: Application):
                         display_platform = number_platform if number_platform else provider
                         owner_id = phone_to_user_map.get(phone)
                         
-                        service_icon = "📱"
-                        service_name = provider
-                        service_display = "OTP"
-                        code_label = "OTP Code"
-
+                        group_keyboard = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
+                        ])
+                        
                         is_instagram = "instagram" in provider.lower() or "instagram" in message.lower()
                         is_whatsapp = "whatsapp" in provider.lower() or "whatsapp" in message.lower()
                         
@@ -1595,10 +1601,6 @@ async def sms_watcher_task(application: Application):
                             f"📝 <b>Full Message:</b>\n\n"
                             f"<blockquote>{html_escape(message)}</blockquote>"
                         )
-                        
-                        group_keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
-                        ])
 
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 
@@ -1660,7 +1662,7 @@ async def sms_watcher_task(application: Application):
         except Exception as e:
             logging.error(f"Error in sms_watcher_task: {e}")
         
-        await asyncio.sleep(15) # Ensures 15 second delay between checks
+        await asyncio.sleep(15)
 
 async def test_group_access(application):
     try:
