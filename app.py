@@ -3,6 +3,7 @@ import json
 import time
 import random
 import asyncio
+import threading
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, error
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
@@ -513,6 +514,7 @@ class NewPanelSmsManager:
             for row in sms_data:
                 try:
                     if len(row) >= 6:
+                        # FIX: Cast ALL fields to strings to prevent "int is not iterable" errors
                         time_str = str(row[0]) if row[0] is not None else "N/A"
                         country_provider = str(row[1]) if row[1] is not None else "Unknown"
                         phone = str(row[2]) if row[2] is not None else "N/A"
@@ -534,6 +536,7 @@ class NewPanelSmsManager:
                     logging.warning(f"Could not parse SMS row: {e}")
 
             logging.info(f"Processed {len(sms_list)} valid SMS entries.") 
+            # No Lock
             with open(SMS_CACHE_FILE, 'w', encoding='utf-8') as f:
                 for sms in sms_list:
                     f.write(json.dumps(sms) + "\n")
@@ -814,8 +817,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if state == 'REMOVING_NUMBER':
             text = f"<blockquote><b>🗑️ Which country's numbers do you want to remove? (Page {page + 1})</b></blockquote>"
         else:
-            # Should not happen in new flow
-            return
+            text = f"<blockquote><b>🌍 Which country's numbers do you want to add? (Page {page + 1})</b></blockquote>"
 
         try:
             await query.edit_message_text(
