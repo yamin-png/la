@@ -3,7 +3,6 @@ import json
 import time
 import random
 import asyncio
-import threading
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, error
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
@@ -48,92 +47,6 @@ WITHDRAWAL_LIMIT = 1.0
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
 PANEL_SMS_URL = f"{PANEL_BASE_URL}/agent/SMSCDRStats"
 PHPSESSID = config.get('PHPSESSID', 'rpimjduka5o0bqp2hb3k1lrcp8')
-
-# --- Global File Lock ---
-FILE_LOCK = threading.Lock()
-
-# Available Countries
-COUNTRIES = {
-    "🇦🇨": "Ascension Island", "🇦🇩": "Andorra", "🇦🇪": "United Arab Emirates", "🇦🇫": "Afghanistan",
-    "🇦🇬": "Antigua and Barbuda", "🇦🇮": "Anguilla", "🇦🇱": "Albania", "🇦🇲": "Armenia",
-    "🇦🇴": "Angola", "🇦🇶": "Antarctica", "🇦🇷": "Argentina", "🇦🇸": "American Samoa",
-    "🇦🇹": "Austria", "🇦🇺": "Australia", "🇦🇼": "Aruba", "🇦🇽": "Aland Islands",
-    "🇦🇿": "Azerbaijan", "🇧🇦": "Bosnia and Herzegovina", "🇧🇧": "Barbados", "🇧🇩": "Bangladesh",
-    "🇧🇪": "Belgium", "🇧🇫": "Burkina Faso", "🇧🇬": "Bulgaria", "🇧🇭": "Bahrain",
-    "🇧🇮": "Burundi", "🇧🇯": "Benin", "🇧🇱": "Saint Barthelemy", "🇧🇲": "Bermuda",
-    "🇧🇳": "Brunei", "🇧🇴": "Bolivia", "🇧🇶": "Caribbean Netherlands", "🇧🇷": "Brazil",
-    "🇧🇸": "Bahamas", "🇧🇹": "Bhutan", "🇧🇻": "Bouvet Island", "🇧🇼": "Botswana",
-    "🇧🇾": "Belarus", "🇧🇿": "Belize", "🇨🇦": "Canada", "🇨🇨": "Cocos (Keeling) Islands",
-    "🇨🇩": "DR Congo", "🇨🇫": "Central African Republic", "🇨🇬": "Congo", "🇨🇭": "Switzerland",
-    "🇨🇮": "Ivory Coast", "🇨🇰": "Cook Islands", "🇨🇱": "Chile", "🇨🇲": "Cameroon",
-    "🇨🇳": "China", "🇨🇴": "Colombia", "🇨🇵": "Clipperton Island", "🇨🇷": "Costa Rica",
-    "🇨🇺": "Cuba", "🇨🇻": "Cape Verde", "🇨🇼": "Curaçao", "🇨🇽": "Christmas Island",
-    "🇨🇾": "Cyprus", "🇨🇿": "Czech Republic", "🇩🇪": "Germany", "🇩🇬": "Diego Garcia",
-    "🇩🇯": "Djibouti", "🇩🇰": "Denmark", "🇩🇲": "Dominica", "🇩🇴": "Dominican Republic",
-    "🇩🇿": "Algeria", "🇪🇦": "Ceuta & Melilla", "🇪🇨": "Ecuador", "🇪🇪": "Estonia",
-    "🇪🇬": "Egypt", "🇪🇭": "Western Sahara", "🇪🇷": "Eritrea", "🇪🇸": "Spain",
-    "🇪🇹": "Ethiopia", "🇪🇺": "European Union", "🇫🇮": "Finland", "🇫🇯": "Fiji",
-    "🇫🇰": "Falkland Islands (Malvinas)", "🇫🇲": "Micronesia", "🇫🇴": "Faroe Islands", "🇫🇷": "France",
-    "🇬🇦": "Gabon", "🇬🇧": "United Kingdom", "🇬🇩": "Grenada", "🇬🇪": "Georgia",
-    "🇬🇫": "French Guiana", "🇬🇬": "Guernsey", "🇬🇭": "Ghana", "🇬🇮": "Gibraltar",
-    "🇬🇱": "Greenland", "🇬🇲": "Gambia", "🇬🇳": "Guinea", "🇬🇵": "Guadeloupe",
-    "🇬🇶": "Equatorial Guinea", "🇬🇷": "Greece", "🇬🇸": "South Georgia and the South Sandwich Islands", "🇬🇹": "Guatemala",
-    "🇬🇺": "Guam", "🇬🇼": "Guinea-Bissau", "🇬🇾": "Guyana", "🇭🇰": "Hong Kong",
-    "🇭🇲": "Heard Island and McDonald Islands", "🇭🇳": "Honduras", "🇭🇷": "Croatia", "🇭🇹": "Haiti",
-    "🇭🇺": "Hungary", "🇮🇨": "Canary Islands", "🇮🇩": "Indonesia", "🇮🇪": "Ireland",
-    "🇮🇱": "Israel", "🇮🇲": "Isle of Man", "🇮🇳": "India", "🇮🇴": "British Indian Ocean Territory",
-    "🇮🇶": "Iraq", "🇮🇷": "Iran", "🇮🇸": "Iceland", "🇮🇹": "Italy",
-    "🇯🇪": "Jersey", "🇯🇲": "Jamaica", "🇯🇴": "Jordan", "🇯🇵": "Japan",
-    "🇰🇪": "Kenya", "🇰🇬": "Kyrgyzstan", "🇰🇭": "Cambodia", "🇰🇮": "Kiribati",
-    "🇰🇲": "Comoros", "🇰🇳": "Saint Kitts and Nevis", "🇰🇵": "North Korea", "🇰🇷": "South Korea",
-    "🇰🇼": "Kuwait", "🇰🇾": "Cayman Islands", "🇰🇿": "Kazakhstan", "🇱🇦": "Laos",
-    "🇱🇧": "Lebanon", "🇱🇨": "Saint Lucia", "🇱🇮": "Liechtenstein", "🇱🇰": "Sri Lanka",
-    "🇱🇷": "Liberia", "🇱🇸": "Lesotho", "🇱🇹": "Lithuania", "🇱🇺": "Luxembourg",
-    "🇱🇻": "Latvia", "🇱🇾": "Libya", "🇲🇦": "Morocco", "🇲🇨": "Monaco",
-    "🇲🇩": "Moldova", "🇲🇪": "Montenegro", "🇲🇫": "Saint Martin", "🇲🇬": "Madagascar",
-    "🇲🇭": "Marshall Islands", "🇲🇰": "North Macedonia", "🇲🇱": "Mali", "🇲🇲": "Myanmar",
-    "🇲🇳": "Mongolia", "🇲🇴": "Macao", "🇲🇵": "Northern Mariana Islands", "🇲🇶": "Martinique",
-    "🇲🇷": "Mauritania", "🇲🇸": "Montserrat", "🇲🇹": "Malta", "🇲🇺": "Mauritius",
-    "🇲🇻": "Maldives", "🇲🇼": "Malawi", "🇲🇽": "Mexico", "🇲🇾": "Malaysia",
-    "🇲🇿": "Mozambique", "🇳🇦": "Namibia", "🇳🇨": "New Caledonia", "🇳🇪": "Niger",
-    "🇳🇫": "Norfolk Island", "🇳🇬": "Nigeria", "🇳🇮": "Nicaragua", "🇳🇱": "Netherlands",
-    "🇳🇴": "Norway", "🇳🇵": "Nepal", "🇳🇷": "Nauru", "🇳🇺": "Niue",
-    "🇳🇿": "New Zealand", "🇴🇲": "Oman", "🇵🇦": "Panama", "🇵🇪": "Peru",
-    "🇵🇫": "French Polynesia", "🇵🇬": "Papua New Guinea", "🇵🇭": "Philippines", "🇵🇰": "Pakistan",
-    "🇵🇱": "Poland", "🇵🇲": "Saint Pierre and Miquelon", "🇵🇳": "Pitcairn Islands", "🇵🇷": "Puerto Rico",
-    "🇵🇸": "Palestine", "🇵🇹": "Portugal", "🇵🇼": "Palau", "🇵🇾": "Paraguay",
-    "🇶🇦": "Qatar", "🇷🇪": "Reunion", "🇷🇴": "Romania", "🇷🇸": "Serbia",
-    "🇷🇺": "Russia", "🇷🇼": "Rwanda", "🇸🇦": "Saudi Arabia", "🇸🇧": "Solomon Islands",
-    "🇸🇨": "Seychelles", "🇸🇩": "Sudan", "🇸🇪": "Sweden", "🇸🇬": "Singapore",
-    "🇸🇭": "St. Helena", "🇸🇮": "Slovenia", "🇸🇯": "Svalbard and Jan Mayen", "🇸🇰": "Slovakia",
-    "🇸🇱": "Sierra Leone", "🇸🇲": "San Marino", "🇸🇳": "Senegal", "🇸🇴": "Somalia",
-    "🇸🇷": "Suriname", "🇸🇸": "South Sudan", "🇸🇹": "Sao Tome and Principe", "🇸🇻": "El Salvador",
-    "🇸🇽": "Sint Maarten", "🇸🇾": "Syria", "🇸🇿": "Eswatini", "🇹🇦": "Tristan da Cunha",
-    "🇹🇨": "Turks and Caicos Islands", "🇹🇩": "Chad", "🇹🇫": "French Southern Territories", "🇹🇬": "Togo",
-    "🇹🇭": "Thailand", "🇹🇯": "Tajikistan", "🇹🇰": "Tokelau", "🇹🇱": "Timor-Leste",
-    "🇹🇲": "Turkmenistan", "🇹🇳": "Tunisia", "🇹🇴": "Tonga", "🇹🇷": "Turkey",
-    "🇹🇹": "Trinidad & Tobago", "🇹🇻": "Tuvalu", "🇹🇼": "Taiwan", "🇹🇿": "Tanzania",
-    "🇺🇦": "Ukraine", "🇺🇬": "Uganda", "🇺🇲": "United States Outlying Islands", "🇺🇳": "United Nations",
-    "🇺🇸": "United States", "🇺🇾": "Uruguay", "🇺🇿": "Uzbekistan", "🇻🇦": "Vatican City",
-    "🇻🇨": "Saint Vincent and the Grenadines", "🇻🇪": "Venezuela", "🇻🇬": "British Virgin Islands", "🇻🇮": "United States Virgin Islands",
-    "🇻🇳": "Vietnam", "🇻🇺": "Vanuatu", "🇼🇫": "Wallis and Futuna", "🇼🇸": "Samoa",
-    "🇽🇰": "Kosovo", "🇾🇪": "Yemen", "🇾🇹": "Mayotte", "🇿🇦": "South Africa",
-    "🇿🇲": "Zambia", "🇿🇼": "Zimbabwe", "🏴󠁧󠁢󠁥󠁮󠁧󠁿": "England", "🏴󠁧󠁢󠁳󠁣󠁴󠁿": "Scotland",
-    "🏴󠁧󠁢󠁷󠁬󠁳󠁿": "Wales"
-}
-
-# Available Social Media Platforms
-SOCIAL_PLATFORMS = [
-    "WhatsApp", "AUTHENTIFY", "Facebook", "Verify", "InfobankCrp", "OKTA",
-    "InfoSMS", "NHNcorp", "Apple", "NOTICE", "Binance", "Sony", "PGUVERCINI",
-    "Winbit", "FREEDOM", "Google", "Steam", "AIRBNB", "Stockmann", "IQOS",
-    "TCELLWIFI", "EpicGames", "Bybit", "TK INFO", "Booking.com", "Kapitalbank",
-    "DiDi", "PMSM_Ltd", "Huawei", "PEGASUS", "Moneybo", "BOG.GE", "1win",
-    "Microsoft", "Instagram", "Telegram", "Snapchat", "TikTok", "Twitter (X)",
-    "LinkedIn", "Pinterest", "Reddit", "Discord", "Threads", "WeChat",
-    "Viber", "Skype", "Line", "Signal", "Clubhouse", "Tumblr", "Messenger",
-    "Quora", "KakaoTalk", "Imo"
-]
 
 # File Paths
 USERS_FILE = 'users.json'
@@ -188,23 +101,6 @@ def load_sent_sms_keys():
 def save_sent_sms_keys(keys):
     save_json_data(SENT_SMS_FILE, list(keys))
 
-def _send_critical_admin_alert(message):
-    """Sends a critical notification to the admin immediately using a sync Bot instance."""
-    global LAST_SESSION_FAILURE_NOTIFICATION
-    if time.time() - LAST_SESSION_FAILURE_NOTIFICATION < 600:
-        return
-        
-    try:
-        sync_bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-        sync_bot.send_message(
-            chat_id=ADMIN_ID, 
-            text=f"<b>{message}</b>", 
-            parse_mode=ParseMode.HTML
-        )
-        LAST_SESSION_FAILURE_NOTIFICATION = time.time()
-    except Exception as e:
-        logging.error(f"Failed to send critical admin notification: {e}")
-
 async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
     """
     Asynchronously sends SMS data to a Cloudflare Worker which logs it to D1.
@@ -212,7 +108,6 @@ async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
     CLOUDFLARE_WORKER_URL = "https://calm-tooth-c2f4.smyaminhasan50.workers.dev"
     
     if CLOUDFLARE_WORKER_URL == "https://YOUR_WORKER_NAME.YOUR_ACCOUNT.workers.dev":
-        logging.warning("Cloudflare Worker URL is not set. Skipping D1 log.")
         return
 
     payload = {
@@ -234,7 +129,7 @@ async def log_sms_to_d1(sms_data: dict, otp: str, owner_id: str):
                 if response.status == 201:
                     logging.info(f"Successfully logged SMS for {payload['phone']} to D1.")
                 else:
-                    logging.error(f"Failed to log SMS to D1. Status: {response.status}, Body: {await response.text()}")
+                    logging.error(f"Failed to log SMS to D1. Status: {response.status}")
     except Exception as e:
         logging.error(f"Error connecting to Cloudflare Worker: {e}")
 
@@ -272,216 +167,250 @@ def extract_otp_from_text(text):
     fallback_match = re.search(r'\b(\d{4,8})\b', text)
     return fallback_match.group(1) if fallback_match else "N/A"
 
-def get_number_from_file_for_platform(country, platform):
-    """Gets a number from numbers.txt file for specific country and platform, then deletes it."""
-    # DEBUG: Print what we are looking for
-    print(f"DEBUG: Searching for Country='{country}', Platform='{platform}'")
+# --- Country Detection Logic ---
+# Mapping of Country Code -> (Country Name, Flag)
+COUNTRY_PREFIXES = {
+    "1": ("United States", "🇺🇸"), "7": ("Russia", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
+    "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
+    "34": ("Spain", "🇪🇸"), "36": ("Hungary", "🇭🇺"), "39": ("Italy", "🇮🇹"), "40": ("Romania", "🇷🇴"),
+    "41": ("Switzerland", "🇨🇭"), "43": ("Austria", "🇦🇹"), "44": ("United Kingdom", "🇬🇧"), "45": ("Denmark", "🇩🇰"),
+    "46": ("Sweden", "🇸🇪"), "47": ("Norway", "🇳🇴"), "48": ("Poland", "🇵🇱"), "49": ("Germany", "🇩🇪"),
+    "51": ("Peru", "🇵🇪"), "52": ("Mexico", "🇲🇽"), "53": ("Cuba", "🇨🇺"), "54": ("Argentina", "🇦🇷"),
+    "55": ("Brazil", "🇧🇷"), "56": ("Chile", "🇨🇱"), "57": ("Colombia", "🇨🇴"), "58": ("Venezuela", "🇻🇪"),
+    "60": ("Malaysia", "🇲🇾"), "61": ("Australia", "🇦🇺"), "62": ("Indonesia", "🇮🇩"), "63": ("Philippines", "🇵🇭"),
+    "64": ("New Zealand", "🇳🇿"), "65": ("Singapore", "🇸🇬"), "66": ("Thailand", "🇹🇭"), "81": ("Japan", "🇯🇵"),
+    "82": ("South Korea", "🇰🇷"), "84": ("Vietnam", "🇻🇳"), "86": ("China", "🇨🇳"), "90": ("Turkey", "🇹🇷"),
+    "91": ("India", "🇮🇳"), "92": ("Pakistan", "🇵🇰"), "93": ("Afghanistan", "🇦🇫"), "94": ("Sri Lanka", "🇱🇰"),
+    "95": ("Myanmar", "🇲🇲"), "98": ("Iran", "🇮🇷"), "212": ("Morocco", "🇲🇦"), "213": ("Algeria", "🇩🇿"),
+    "216": ("Tunisia", "🇹🇳"), "218": ("Libya", "🇱🇾"), "220": ("Gambia", "🇬🇲"), "221": ("Senegal", "🇸🇳"),
+    "222": ("Mauritania", "🇲🇷"), "223": ("Mali", "🇲🇱"), "224": ("Guinea", "🇬🇳"), "225": ("Ivory Coast", "🇨🇮"),
+    "226": ("Burkina Faso", "🇧🇫"), "227": ("Niger", "🇳🇪"), "228": ("Togo", "🇹🇬"), "229": ("Benin", "🇧🇯"),
+    "230": ("Mauritius", "🇲🇺"), "231": ("Liberia", "🇱🇷"), "232": ("Sierra Leone", "🇸🇱"), "233": ("Ghana", "🇬🇭"),
+    "234": ("Nigeria", "🇳🇬"), "235": ("Chad", "🇹🇩"), "236": ("Central African Republic", "🇨🇫"), "237": ("Cameroon", "🇨🇲"),
+    "238": ("Cape Verde", "🇨🇻"), "239": ("Sao Tome and Principe", "🇸🇹"), "240": ("Equatorial Guinea", "🇬🇶"), "241": ("Gabon", "🇬🇦"),
+    "242": ("Congo", "🇨🇬"), "243": ("Congo", "🇨🇩"), "244": ("Angola", "🇦🇴"), "245": ("Guinea-Bissau", "🇬🇼"),
+    "246": ("British Indian Ocean Territory", "🇮🇴"), "248": ("Seychelles", "🇸🇨"), "249": ("Sudan", "🇸🇩"), "250": ("Rwanda", "🇷🇼"),
+    "251": ("Ethiopia", "🇪🇹"), "252": ("Somalia", "🇸🇴"), "253": ("Djibouti", "🇩🇯"), "254": ("Kenya", "🇰🇪"),
+    "255": ("Tanzania", "🇹🇿"), "256": ("Uganda", "🇺🇬"), "257": ("Burundi", "🇧🇮"), "258": ("Mozambique", "🇲🇿"),
+    "260": ("Zambia", "🇿🇲"), "261": ("Madagascar", "🇲🇬"), "262": ("Reunion", "🇷🇪"), "263": ("Zimbabwe", "🇿🇼"),
+    "264": ("Namibia", "🇳🇦"), "265": ("Malawi", "🇲🇼"), "266": ("Lesotho", "🇱🇸"), "267": ("Botswana", "🇧🇼"),
+    "268": ("Eswatini", "🇸🇿"), "269": ("Comoros", "🇰🇲"), "290": ("Saint Helena", "🇸🇭"), "291": ("Eritrea", "🇪🇷"),
+    "297": ("Aruba", "🇦🇼"), "298": ("Faroe Islands", "🇫🇴"), "299": ("Greenland", "🇬🇱"), "350": ("Gibraltar", "🇬🇮"),
+    "351": ("Portugal", "🇵🇹"), "352": ("Luxembourg", "🇱🇺"), "353": ("Ireland", "🇮🇪"), "354": ("Iceland", "🇮🇸"),
+    "355": ("Albania", "🇦🇱"), "356": ("Malta", "🇲🇹"), "357": ("Cyprus", "🇨🇾"), "358": ("Finland", "🇫🇮"),
+    "359": ("Bulgaria", "🇧🇬"), "370": ("Lithuania", "🇱🇹"), "371": ("Latvia", "🇱🇻"), "372": ("Estonia", "🇪🇪"),
+    "373": ("Moldova", "🇲🇩"), "374": ("Armenia", "🇦🇲"), "375": ("Belarus", "🇧🇾"), "376": ("Andorra", "🇦🇩"),
+    "377": ("Monaco", "🇲🇨"), "378": ("San Marino", "🇸🇲"), "380": ("Ukraine", "🇺🇦"), "381": ("Serbia", "🇷🇸"),
+    "382": ("Montenegro", "🇲🇪"), "383": ("Kosovo", "🇽🇰"), "385": ("Croatia", "🇭🇷"), "386": ("Slovenia", "🇸🇮"),
+    "387": ("Bosnia and Herzegovina", "🇧🇦"), "389": ("North Macedonia", "🇲🇰"), "420": ("Czech Republic", "🇨🇿"),
+    "421": ("Slovakia", "🇸🇰"), "423": ("Liechtenstein", "🇱🇮"), "500": ("Falkland Islands", "🇫🇰"),
+    "501": ("Belize", "🇧🇿"), "502": ("Guatemala", "🇬🇹"), "503": ("El Salvador", "🇸🇻"), "504": ("Honduras", "🇭🇳"),
+    "505": ("Nicaragua", "🇳🇮"), "506": ("Costa Rica", "🇨🇷"), "507": ("Panama", "🇵🇦"), "508": ("Saint Pierre and Miquelon", "🇵🇲"),
+    "509": ("Haiti", "🇭🇹"), "590": ("Guadeloupe", "🇬🇵"), "591": ("Bolivia", "🇧🇴"), "592": ("Guyana", "🇬🇾"),
+    "593": ("Ecuador", "🇪🇨"), "594": ("French Guiana", "🇬🇫"), "595": ("Paraguay", "🇵🇾"), "596": ("Martinique", "🇲🇶"),
+    "597": ("Suriname", "🇸🇷"), "598": ("Uruguay", "🇺🇾"), "599": ("Netherlands Antilles", "🇳🇱"), "670": ("Timor-Leste", "🇹🇱"),
+    "672": ("Australian External Territories", "🇦🇺"), "673": ("Brunei", "🇧🇳"), "674": ("Nauru", "🇳🇷"),
+    "675": ("Papua New Guinea", "🇵🇬"), "676": ("Tonga", "🇹🇴"), "677": ("Solomon Islands", "🇸🇧"), "678": ("Vanuatu", "🇻🇺"),
+    "679": ("Fiji", "🇫🇯"), "680": ("Palau", "🇵🇼"), "681": ("Wallis and Futuna", "🇼🇫"), "682": ("Cook Islands", "🇨🇰"),
+    "683": ("Niue", "🇳🇺"), "684": ("American Samoa", "🇦🇸"), "685": ("Samoa", "🇼🇸"), "686": ("Kiribati", "🇰🇮"),
+    "687": ("New Caledonia", "🇳🇨"), "688": ("Tuvalu", "🇹🇻"), "689": ("French Polynesia", "🇵🇫"), "690": ("Tokelau", "🇹🇰"),
+    "691": ("Micronesia", "🇫🇲"), "692": ("Marshall Islands", "🇲🇭"), "850": ("North Korea", "🇰🇵"), "852": ("Hong Kong", "🇭🇰"),
+    "853": ("Macau", "🇲🇴"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"), "880": ("Bangladesh", "🇧🇩"),
+    "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"), "962": ("Jordan", "🇯🇴"),
+    "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"), "966": ("Saudi Arabia", "🇸🇦"),
+    "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇵🇸"), "971": ("United Arab Emirates", "🇦🇪"),
+    "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"), "975": ("Bhutan", "🇧🇹"),
+    "976": ("Mongolia", "🇲🇳"), "977": ("Nepal", "🇳🇵"), "992": ("Tajikistan", "🇹🇯"), "993": ("Turkmenistan", "🇹🇲"),
+    "994": ("Azerbaijan", "🇦🇿"), "995": ("Georgia", "🇬🇪"), "996": ("Kyrgyzstan", "🇰🇬"), "998": ("Uzbekistan", "🇺🇿"),
+}
+
+def detect_country_from_phone(phone):
+    """Detect country from phone number prefix, returns (Name, Flag)"""
+    if not phone:
+        return "Unknown", "🌍"
+    
+    phone_str = str(phone).replace("+", "").replace(" ", "").replace("-", "")
+    
+    # Try different prefix lengths (longest first)
+    for length in [3, 2, 1]:
+        if len(phone_str) >= length:
+            prefix = phone_str[:length]
+            if prefix in COUNTRY_PREFIXES:
+                return COUNTRY_PREFIXES[prefix]
+    
+    return "Unknown", "🌍"
+
+def get_number_from_file_for_country(country_name):
+    """
+    Gets a RANDOM number for specific country from numbers.txt file, then deletes it.
+    Ignores platform.
+    """
+    print(f"DEBUG: Searching for Country='{country_name}' (Random Pick)")
 
     if not os.path.exists(NUMBERS_FILE):
         print(f"DEBUG: {NUMBERS_FILE} does not exist.")
         return None
     
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            lines = [line.strip() for line in f if line.strip()]
-        
-        if not lines:
-            print("DEBUG: Numbers file is empty.")
-            return None
-        
-        # Find matching number for country and platform
-        for i, line in enumerate(lines):
-            try:
-                # Try to parse as JSON (new format)
-                number_info = json.loads(line)
-                
-                # Strip spaces to be safe, match user logic
-                if (number_info.get("country", "").strip() == country and 
-                    number_info.get("platform", "").strip() == platform):
-                    
-                    # Found matching number, remove it from file
-                    number = number_info.get("number")
-                    if number:
-                        print(f"DEBUG: MATCH FOUND! Number: {number}")
-                        # Remove this line from file
-                        lines.pop(i)
-                        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                            for remaining_line in lines:
-                                f.write(remaining_line + "\n")
-                        return number
-            except json.JSONDecodeError:
-                # Handle old format (plain numbers) - assume all are from Kenya
-                if country == "Kenya":
-                    number = line
-                    if number:
-                        print(f"DEBUG: Legacy match found (Kenya): {number}")
-                        # Remove this line from file
-                        lines.pop(i)
-                        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                            for remaining_line in lines:
-                                f.write(remaining_line + "\n")
-                        return number
-            except Exception as e:
-                 print(f"DEBUG: Error processing line: {e}")
+    target_country = str(country_name).strip().lower()
+    matching_indices = []
     
-    print(f"DEBUG: No number found for {country} - {platform} after checking {len(lines)} lines.")
+    # 1. Read all lines into memory
+    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    if not lines:
+        print("DEBUG: Numbers file is empty.")
+        return None
+    
+    # 2. Find all matching lines
+    for i, line in enumerate(lines):
+        number = line.strip()
+        if not number: continue
+        
+        # Detect country from this number
+        detected_name, _ = detect_country_from_phone(number)
+        
+        if detected_name.lower() == target_country:
+            matching_indices.append(i)
+    
+    # 3. Pick a random index if matches found
+    if matching_indices:
+        chosen_index = random.choice(matching_indices)
+        number = lines[chosen_index].strip()
+        
+        print(f"DEBUG: MATCH FOUND! Number: {number} at line {chosen_index}")
+        
+        # 4. Remove from memory list
+        lines.pop(chosen_index)
+        
+        # 5. Write back to file
+        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+            
+        return number
+
+    print(f"DEBUG: No number found for {country_name} after checking {len(lines)} lines.")
     return None
 
-def add_number_to_file(number, country=None, platform=None):
-    with FILE_LOCK:
-        number_info = {
-            "number": number,
-            "country": country,
-            "platform": platform,
-            "added_date": get_bst_now().isoformat()
-        }
-        
-        logging.info(f"Adding number to file: {number_info}")
-        
-        existing_content = []
-        if os.path.exists(NUMBERS_FILE):
-            try:
-                with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-                    existing_content = f.readlines()
-            except Exception as e:
-                logging.error(f"Error reading existing file: {e}")
-                existing_content = []
-        
-        try:
-            with open(NUMBERS_FILE, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(number_info, ensure_ascii=False) + "\n")
-            logging.info(f"Successfully added number {number} to file")
-        except Exception as e:
-            logging.error(f"Error writing to file: {e}")
-            try:
-                with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                    f.writelines(existing_content)
-            except Exception as restore_error:
-                logging.error(f"Failed to restore file: {restore_error}")
-
-def remove_numbers_for_platforms(country, platforms):
-    with FILE_LOCK:
-        if not os.path.exists(NUMBERS_FILE):
-            return 0
-        
-        try:
-            with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except Exception as e:
-            logging.error(f"Error reading file for removal: {e}")
-            return 0
-        
-        remaining_lines = []
-        removed_count = 0
-        
-        target_platforms = {p.lower().strip() for p in platforms}
-        target_country = str(country).strip().lower()
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                remaining_lines.append(line + "\n")
-                continue
-            
-            try:
-                number_info = json.loads(line)
-                stored_country = str(number_info.get("country", "")).strip().lower()
-                stored_platform = str(number_info.get("platform", "")).strip().lower()
-                
-                if stored_country == target_country and stored_platform in target_platforms:
-                    removed_count += 1
-                    logging.info(f"Removed number: {number_info}")
-                else:
-                    remaining_lines.append(line + "\n")
-            except:
-                 remaining_lines.append(line + "\n")
-        
-        try:
-            with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                f.writelines(remaining_lines)
-            logging.info(f"Successfully removed {removed_count} numbers from file")
-        except Exception as e:
-            logging.error(f"Error writing file after removal: {e}")
-            return 0
-        
-        return removed_count
-
-def get_available_countries_for_platform(platform):
-    if not os.path.exists(NUMBERS_FILE):
-        return []
+def add_numbers_to_file(number_list):
+    """Adds a list of numbers to numbers.txt file."""
+    if not number_list: return
     
-    countries = set()
-    # Normalize target platform
-    target_platform = str(platform).strip().lower()
+    # Append mode
+    with open(NUMBERS_FILE, 'a', encoding='utf-8') as f:
+        for num in number_list:
+            clean_num = num.strip()
+            if clean_num.isdigit() and len(clean_num) > 5:
+                f.write(clean_num + "\n")
+                logging.info(f"Added number: {clean_num}")
 
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    number_info = json.loads(line)
-                    stored_platform = str(number_info.get("platform", "")).strip().lower()
-                    
-                    if stored_platform == target_platform:
-                        country = number_info.get("country")
-                        if country:
-                            countries.add(country)
-                except:
-                    pass
-    
-    return list(countries)
-
-def get_number_count_for_country_and_platform(country, platform):
+def remove_numbers_for_country(country_name):
+    """Remove all numbers for specific country from numbers.txt."""
     if not os.path.exists(NUMBERS_FILE):
         return 0
     
-    count = 0
-    target_country = str(country).strip().lower()
-    target_platform = str(platform).strip().lower()
-
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    number_info = json.loads(line)
-                    stored_country = str(number_info.get("country", "")).strip().lower()
-                    stored_platform = str(number_info.get("platform", "")).strip().lower()
-
-                    if stored_country == target_country and stored_platform == target_platform:
-                        count += 1
-                except:
-                    pass
+    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
     
-    return count
+    remaining_lines = []
+    removed_count = 0
+    target_country = str(country_name).strip().lower()
+
+    for line in lines:
+        number = line.strip()
+        if not number: continue
+        
+        detected_name, _ = detect_country_from_phone(number)
+        
+        if detected_name.lower() == target_country:
+            removed_count += 1
+            logging.info(f"Removed number: {number}")
+        else:
+            remaining_lines.append(line)
+    
+    with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+        f.writelines(remaining_lines)
+    
+    return removed_count
+
+def get_available_countries_and_counts():
+    """Returns list of (Flag, CountryName, Count) tuples."""
+    if not os.path.exists(NUMBERS_FILE):
+        return []
+    
+    counts = {} # CountryName -> Count
+    
+    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+        for line in f:
+            number = line.strip()
+            if not number: continue
+            
+            name, flag = detect_country_from_phone(number)
+            if name != "Unknown":
+                if name not in counts:
+                    counts[name] = {'flag': flag, 'count': 0}
+                counts[name]['count'] += 1
+    
+    # Convert to list of tuples
+    result = []
+    for name, data in counts.items():
+        result.append((data['flag'], name, data['count']))
+    
+    return sorted(result, key=lambda x: x[1]) # Sort by name
+
+def get_user_country_keyboard():
+    """Creates keyboard for country selection showing only countries with available numbers."""
+    available_data = get_available_countries_and_counts()
+    
+    if not available_data:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]]
+        return InlineKeyboardMarkup(keyboard), True
+    
+    keyboard = []
+    
+    # Create rows with 2 countries each
+    for i in range(0, len(available_data), 2):
+        row = []
+        for j in range(2):
+            if i + j < len(available_data):
+                flag, name, count = available_data[i + j]
+                # Button text: "🇺🇸 United States (5)"
+                button_text = f"{flag} {name} ({count})"
+                # Callback data needs to identify the country securely. We use Name.
+                # WARNING: Callback data limit is 64 bytes. 
+                row.append(InlineKeyboardButton(button_text, callback_data=f"user_country_{name}"))
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
+    return InlineKeyboardMarkup(keyboard), False
 
 def get_admin_country_keyboard(page=0):
+    """Creates a paginated keyboard for admin country selection (from predefined list)."""
     keyboard = []
-    countries_list = list(COUNTRIES.items())
+    # Convert COUNTRY_PREFIXES values to a unique list of (Name, Flag)
+    # COUNTRY_PREFIXES is Prefix -> (Name, Flag)
+    unique_countries = sorted(list(set(COUNTRY_PREFIXES.values())), key=lambda x: x[0])
+    
     items_per_page = 80
 
     start_index = page * items_per_page
     end_index = start_index + items_per_page
     
-    paginated_countries = countries_list[start_index:end_index]
+    paginated = unique_countries[start_index:end_index]
 
-    for i in range(0, len(paginated_countries), 2):
+    for i in range(0, len(paginated), 2):
         row = []
         for j in range(2):
-            if i + j < len(paginated_countries):
-                flag, country = paginated_countries[i + j]
-                row.append(InlineKeyboardButton(f"{flag} {country}", callback_data=f"country_{flag}"))
+            if i + j < len(paginated):
+                name, flag = paginated[i + j]
+                row.append(InlineKeyboardButton(f"{flag} {name}", callback_data=f"country_{name}"))
         keyboard.append(row)
     
     pagination_row = []
     if page > 0:
         pagination_row.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"admin_country_page_{page-1}"))
     
-    if end_index < len(countries_list):
+    if end_index < len(unique_countries):
         pagination_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_country_page_{page+1}"))
     
     if pagination_row:
@@ -489,110 +418,6 @@ def get_admin_country_keyboard(page=0):
     
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
     return InlineKeyboardMarkup(keyboard)
-
-def get_admin_social_keyboard(selected_platforms=None):
-    if selected_platforms is None:
-        selected_platforms = set()
-    
-    keyboard = []
-    for i in range(0, len(SOCIAL_PLATFORMS), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(SOCIAL_PLATFORMS):
-                platform = SOCIAL_PLATFORMS[i + j]
-                button_text = f"✅ {platform}" if platform in selected_platforms else platform
-                row.append(InlineKeyboardButton(button_text, callback_data=f"social_{platform}"))
-        keyboard.append(row)
-    
-    if selected_platforms:
-        keyboard.append([InlineKeyboardButton("✅ Done - Continue", callback_data="social_done")])
-    
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
-    return InlineKeyboardMarkup(keyboard)
-
-def get_main_menu_keyboard():
-    keyboard = [
-        [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def get_user_social_keyboard():
-    keyboard = []
-    available_platforms = []
-    for platform in SOCIAL_PLATFORMS:
-        available_countries = get_available_countries_for_platform(platform)
-        if available_countries:
-            available_platforms.append(platform)
-    
-    if not available_platforms:
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]]
-        return InlineKeyboardMarkup(keyboard)
-    
-    for i in range(0, len(available_platforms), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(available_platforms):
-                platform = available_platforms[i + j]
-                row.append(InlineKeyboardButton(platform, callback_data=f"user_social_{platform}"))
-        keyboard.append(row)
-    
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
-    return InlineKeyboardMarkup(keyboard)
-
-def get_country_keyboard_for_platform(platform):
-    available_countries = get_available_countries_for_platform(platform)
-    
-    if not available_countries:
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]]
-        return InlineKeyboardMarkup(keyboard), True
-    
-    keyboard = []
-    countries_list = []
-    
-    for flag, country in COUNTRIES.items():
-        if country in available_countries:
-            count = get_number_count_for_country_and_platform(country, platform)
-            if count > 0:
-                countries_list.append((flag, country, count))
-    
-    for i in range(0, len(countries_list), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(countries_list):
-                flag, country, count = countries_list[i + j]
-                row.append(InlineKeyboardButton(f"{flag} {country} ({count})", callback_data=f"user_country_{flag}"))
-        keyboard.append(row)
-    
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
-    return InlineKeyboardMarkup(keyboard), False
-
-def get_number_info(phone_number):
-    if not os.path.exists(NUMBERS_FILE):
-        return None, None, None
-    
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    number_info = json.loads(line)
-                    if number_info.get("number") == phone_number:
-                        country = number_info.get("country")
-                        platform = number_info.get("platform")
-                        flag = None
-                        if country:
-                            for f, c in COUNTRIES.items():
-                                if c == country:
-                                    flag = f
-                                    break
-                        return country, platform, flag
-                except:
-                    if line == phone_number:
-                        return "Kenya", "WhatsApp", "🇰🇪"
-    
-    return None, None, None
 
 def html_escape(text):
     return str(text).replace('<', '&lt;').replace('>', '&gt;')
@@ -602,75 +427,6 @@ def hide_number(number):
         num_str = str(number)
         return f"{num_str[:3]}XXXX{num_str[-4:]}"
     return number
-
-def detect_country_from_phone(phone):
-    if not phone:
-        return "Unknown", "🌍"
-    
-    phone_str = str(phone).replace("+", "").replace(" ", "").replace("-", "")
-    
-    country_codes = {
-        "1": ("United States", "🇺🇸"), "7": ("Russia", "🇷🇺"), "20": ("Egypt", "🇪🇬"), "27": ("South Africa", "🇿🇦"),
-        "30": ("Greece", "🇬🇷"), "31": ("Netherlands", "🇳🇱"), "32": ("Belgium", "🇧🇪"), "33": ("France", "🇫🇷"),
-        "34": ("Spain", "🇪🇸"), "36": ("Hungary", "🇭🇺"), "39": ("Italy", "🇮🇹"), "40": ("Romania", "🇷🇴"),
-        "41": ("Switzerland", "🇨🇭"), "43": ("Austria", "🇦🇹"), "44": ("United Kingdom", "🇬🇧"), "45": ("Denmark", "🇩🇰"),
-        "46": ("Sweden", "🇸🇪"), "47": ("Norway", "🇳🇴"), "48": ("Poland", "🇵🇱"), "49": ("Germany", "🇩🇪"),
-        "51": ("Peru", "🇵🇪"), "52": ("Mexico", "🇲🇽"), "53": ("Cuba", "🇨🇺"), "54": ("Argentina", "🇦🇷"),
-        "55": ("Brazil", "🇧🇷"), "56": ("Chile", "🇨🇱"), "57": ("Colombia", "🇨🇴"), "58": ("Venezuela", "🇻🇪"),
-        "60": ("Malaysia", "🇲🇾"), "61": ("Australia", "🇦🇺"), "62": ("Indonesia", "🇮🇩"), "63": ("Philippines", "🇵🇭"),
-        "64": ("New Zealand", "🇳🇿"), "65": ("Singapore", "🇸🇬"), "66": ("Thailand", "🇹🇭"), "81": ("Japan", "🇯🇵"),
-        "82": ("South Korea", "🇰🇷"), "84": ("Vietnam", "🇻🇳"), "86": ("China", "🇨🇳"), "90": ("Turkey", "🇹🇷"),
-        "91": ("India", "🇮🇳"), "92": ("Pakistan", "🇵🇰"), "93": ("Afghanistan", "🇦🇫"), "94": ("Sri Lanka", "🇱🇰"),
-        "95": ("Myanmar", "🇲🇲"), "98": ("Iran", "🇮🇷"), "212": ("Morocco", "🇲🇦"), "213": ("Algeria", "🇩🇿"),
-        "216": ("Tunisia", "🇹🇳"), "218": ("Libya", "🇱🇾"), "220": ("Gambia", "🇬🇲"), "221": ("Senegal", "🇸🇳"),
-        "222": ("Mauritania", "🇲🇷"), "223": ("Mali", "🇲🇱"), "224": ("Guinea", "🇬🇳"), "225": ("Ivory Coast", "🇨🇮"),
-        "226": ("Burkina Faso", "🇧🇫"), "227": ("Niger", "🇳🇪"), "228": ("Togo", "🇹🇬"), "229": ("Benin", "🇧🇯"),
-        "230": ("Mauritius", "🇲🇺"), "231": ("Liberia", "🇱🇷"), "232": ("Sierra Leone", "🇸🇱"), "233": ("Ghana", "🇬🇭"),
-        "234": ("Nigeria", "🇳🇬"), "235": ("Chad", "🇹🇩"), "236": ("Central African Republic", "🇨🇫"), "237": ("Cameroon", "🇨🇲"),
-        "238": ("Cape Verde", "🇨🇻"), "239": ("Sao Tome and Principe", "🇸🇹"), "240": ("Equatorial Guinea", "🇬🇶"), "241": ("Gabon", "🇬🇦"),
-        "242": ("Congo", "🇨🇬"), "243": ("Congo", "🇨🇩"), "244": ("Angola", "🇦🇴"), "245": ("Guinea-Bissau", "🇬🇼"),
-        "246": ("British Indian Ocean Territory", "🇮🇴"), "248": ("Seychelles", "🇸🇨"), "249": ("Sudan", "🇸🇩"), "250": ("Rwanda", "🇷🇼"),
-        "251": ("Ethiopia", "🇪🇹"), "252": ("Somalia", "🇸🇴"), "253": ("Djibouti", "🇩🇯"), "254": ("Kenya", "🇰🇪"),
-        "255": ("Tanzania", "🇹🇿"), "256": ("Uganda", "🇺🇬"), "257": ("Burundi", "🇧🇮"), "258": ("Mozambique", "🇲🇿"),
-        "260": ("Zambia", "🇿🇲"), "261": ("Madagascar", "🇲🇬"), "262": ("Reunion", "🇷🇪"), "263": ("Zimbabwe", "🇿🇼"),
-        "264": ("Namibia", "🇳🇦"), "265": ("Malawi", "🇲🇼"), "266": ("Lesotho", "🇱🇸"), "267": ("Botswana", "🇧🇼"),
-        "268": ("Eswatini", "🇸🇿"), "269": ("Comoros", "🇰🇲"), "290": ("Saint Helena", "🇸🇭"), "291": ("Eritrea", "🇪🇷"),
-        "297": ("Aruba", "🇦🇼"), "298": ("Faroe Islands", "🇫🇴"), "299": ("Greenland", "🇬🇱"), "350": ("Gibraltar", "🇬🇮"),
-        "351": ("Portugal", "🇵🇹"), "352": ("Luxembourg", "🇱🇺"), "353": ("Ireland", "🇮🇪"), "354": ("Iceland", "🇮🇸"),
-        "355": ("Albania", "🇦🇱"), "356": ("Malta", "🇲🇹"), "357": ("Cyprus", "🇨🇾"), "358": ("Finland", "🇫🇮"),
-        "359": ("Bulgaria", "🇧🇬"), "370": ("Lithuania", "🇱🇹"), "371": ("Latvia", "🇱🇻"), "372": ("Estonia", "🇪🇪"),
-        "373": ("Moldova", "🇲🇩"), "374": ("Armenia", "🇦🇲"), "375": ("Belarus", "🇧🇾"), "376": ("Andorra", "🇦🇩"),
-        "377": ("Monaco", "🇲🇨"), "378": ("San Marino", "🇸🇲"), "380": ("Ukraine", "🇺🇦"), "381": ("Serbia", "🇷🇸"),
-        "382": ("Montenegro", "🇲🇪"), "383": ("Kosovo", "🇽🇰"), "385": ("Croatia", "🇭🇷"), "386": ("Slovenia", "🇸🇮"),
-        "387": ("Bosnia and Herzegovina", "🇧🇦"), "389": ("North Macedonia", "🇲🇰"), "420": ("Czech Republic", "🇨🇿"),
-        "421": ("Slovakia", "🇸🇰"), "423": ("Liechtenstein", "🇱🇮"), "500": ("Falkland Islands", "🇫🇰"),
-        "501": ("Belize", "🇧🇿"), "502": ("Guatemala", "🇬🇹"), "503": ("El Salvador", "🇸🇻"), "504": ("Honduras", "🇭🇳"),
-        "505": ("Nicaragua", "🇳🇮"), "506": ("Costa Rica", "🇨🇷"), "507": ("Panama", "🇵🇦"), "508": ("Saint Pierre and Miquelon", "🇵🇲"),
-        "509": ("Haiti", "🇭🇹"), "590": ("Guadeloupe", "🇬🇵"), "591": ("Bolivia", "🇧🇴"), "592": ("Guyana", "🇬🇾"),
-        "593": ("Ecuador", "🇪🇨"), "594": ("French Guiana", "🇬🇫"), "595": ("Paraguay", "🇵🇾"), "596": ("Martinique", "🇲🇶"),
-        "597": ("Suriname", "🇸🇷"), "598": ("Uruguay", "🇺🇾"), "599": ("Netherlands Antilles", "🇳🇱"), "670": ("Timor-Leste", "🇹🇱"),
-        "672": ("Australian External Territories", "🇦🇺"), "673": ("Brunei", "🇧🇳"), "674": ("Nauru", "🇳🇷"),
-        "675": ("Papua New Guinea", "🇵🇬"), "676": ("Tonga", "🇹🇴"), "677": ("Solomon Islands", "🇸🇧"), "678": ("Vanuatu", "🇻🇺"),
-        "679": ("Fiji", "🇫🇯"), "680": ("Palau", "🇵🇼"), "681": ("Wallis and Futuna", "🇼🇫"), "682": ("Cook Islands", "🇨🇰"),
-        "683": ("Niue", "🇳🇺"), "684": ("American Samoa", "🇦🇸"), "685": ("Samoa", "🇼🇸"), "686": ("Kiribati", "🇰🇮"),
-        "687": ("New Caledonia", "🇳🇨"), "688": ("Tuvalu", "🇹🇻"), "689": ("French Polynesia", "🇵🇫"), "690": ("Tokelau", "🇹🇰"),
-        "691": ("Micronesia", "🇫🇲"), "692": ("Marshall Islands", "🇲🇭"), "850": ("North Korea", "🇰🇵"), "852": ("Hong Kong", "🇭🇰"),
-        "853": ("Macau", "🇲🇴"), "855": ("Cambodia", "🇰🇭"), "856": ("Laos", "🇱🇦"), "880": ("Bangladesh", "🇧🇩"),
-        "886": ("Taiwan", "🇹🇼"), "960": ("Maldives", "🇲🇻"), "961": ("Lebanon", "🇱🇧"), "962": ("Jordan", "🇯🇴"),
-        "963": ("Syria", "🇸🇾"), "964": ("Iraq", "🇮🇶"), "965": ("Kuwait", "🇰🇼"), "966": ("Saudi Arabia", "🇸🇦"),
-        "967": ("Yemen", "🇾🇪"), "968": ("Oman", "🇴🇲"), "970": ("Palestine", "🇵🇸"), "971": ("United Arab Emirates", "🇦🇪"),
-        "972": ("Israel", "🇮🇱"), "973": ("Bahrain", "🇧🇭"), "974": ("Qatar", "🇶🇦"), "975": ("Bhutan", "🇧🇹"),
-        "976": ("Mongolia", "🇲🇳"), "977": ("Nepal", "🇳🇵"), "992": ("Tajikistan", "🇹🇯"), "993": ("Turkmenistan", "🇹🇲"),
-        "994": ("Azerbaijan", "🇦🇿"), "995": ("Georgia", "🇬🇪"), "996": ("Kyrgyzstan", "🇰🇬"), "998": ("Uzbekistan", "🇺🇿"),
-    }
-    
-    for length in [3, 2, 1]:
-        if len(phone_str) >= length:
-            prefix = phone_str[:length]
-            if prefix in country_codes:
-                return country_codes[prefix]
-    
-    return "Unknown", "🌍"
 
 class NewPanelSmsManager:
     _instance = None
@@ -757,7 +513,6 @@ class NewPanelSmsManager:
             for row in sms_data:
                 try:
                     if len(row) >= 6:
-                        # FIX: Cast ALL fields to strings to prevent "int is not iterable" errors
                         time_str = str(row[0]) if row[0] is not None else "N/A"
                         country_provider = str(row[1]) if row[1] is not None else "Unknown"
                         phone = str(row[2]) if row[2] is not None else "N/A"
@@ -779,10 +534,9 @@ class NewPanelSmsManager:
                     logging.warning(f"Could not parse SMS row: {e}")
 
             logging.info(f"Processed {len(sms_list)} valid SMS entries.") 
-            with FILE_LOCK:
-                with open(SMS_CACHE_FILE, 'w', encoding='utf-8') as f:
-                    for sms in sms_list:
-                        f.write(json.dumps(sms) + "\n")
+            with open(SMS_CACHE_FILE, 'w', encoding='utf-8') as f:
+                for sms in sms_list:
+                    f.write(json.dumps(sms) + "\n")
             
         except Exception as e:
             logging.error(f"SMS API fetch failed: {e}")
@@ -860,12 +614,10 @@ async def sms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sms_text += f"<blockquote><b>📊 Your numbers: {len(phone_numbers)}</b></blockquote>\n\n"
     
     for i, number in enumerate(phone_numbers[:5], 1):
-        number_country, number_platform, number_flag = get_number_info(number)
-        display_country = number_country if number_country else "Unknown"
-        display_platform = number_platform if number_platform else "Unknown"
-        display_flag = number_flag if number_flag else "🌍"
+        # Re-detect country since we don't store it in numbers.txt metadata anymore
+        detected_name, detected_flag = detect_country_from_phone(number)
         
-        sms_text += f"<blockquote><b>{i}. {display_flag} {display_country}</b></blockquote>\n\n<blockquote>📱 <code>{hide_number(number)}</code></blockquote>\n\n<blockquote>🔗 Platform: {display_platform}</blockquote>\n\n"
+        sms_text += f"<blockquote><b>{i}. {detected_flag} {detected_name}</b></blockquote>\n\n<blockquote>📱 <code>{hide_number(number)}</code></blockquote>\n\n"
     
     if len(phone_numbers) > 5:
         sms_text += f"<blockquote><b>... and {len(phone_numbers) - 5} more numbers</b></blockquote>\n\n"
@@ -881,10 +633,11 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("<blockquote><b>❌ This command can only be used by admin.</b></blockquote>", parse_mode=ParseMode.HTML)
         return
     
-    country_text = "<blockquote><b>🌍 Which country's numbers do you want to add? (Page 1)</b></blockquote>"
+    context.user_data['state'] = 'ADDING_NUMBER'
     await update.message.reply_text(
-        country_text,
-        reply_markup=get_admin_country_keyboard(page=0),
+        "<blockquote><b>📞 Send the list of numbers to add (plain text):</b></blockquote>\n\n"
+        "<blockquote>221771234567\n15551234567</blockquote>\n\n"
+        "<blockquote><b>Type 'done' when finished.</b></blockquote>",
         parse_mode=ParseMode.HTML
     )
 
@@ -965,7 +718,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<blockquote>Click the 🎁 Get Number button below to get your number:</blockquote>\n\n"
     )
 
-    # FIX: Use context.bot.send_message instead of update.message.reply_text to avoid AttributeError
     await context.bot.send_message(
         chat_id=user_id, 
         text=welcome_text, 
@@ -1062,7 +814,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if state == 'REMOVING_NUMBER':
             text = f"<blockquote><b>🗑️ Which country's numbers do you want to remove? (Page {page + 1})</b></blockquote>"
         else:
-            text = f"<blockquote><b>🌍 Which country's numbers do you want to add? (Page {page + 1})</b></blockquote>"
+            # Should not happen in new flow
+            return
 
         try:
             await query.edit_message_text(
@@ -1074,38 +827,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             pass
         return
 
-    elif query.data.startswith('user_social_'):
-        platform = query.data.split('user_social_')[1]
-        context.user_data['selected_platform'] = platform
-        country_text = f"<blockquote><b>🌍 Which country do you want a number from for {platform}?</b></blockquote>"
-        country_keyboard, no_countries = get_country_keyboard_for_platform(platform)
-        if no_countries:
-            country_text = f"<blockquote><b>😔 No numbers available for {platform} at the moment. Please try again later.</b></blockquote>"
-        try:
-            await query.edit_message_text(country_text, reply_markup=country_keyboard, parse_mode=ParseMode.HTML)
-        except error.BadRequest:
-            pass
-        return
-
     elif query.data.startswith('user_country_'):
-        if len(user_data.get('phone_numbers', [])) > 0:
-            await query.answer("⚠️ You already have a number. Please delete it first.", show_alert=True)
-            return
-
-        flag = query.data.replace('user_country_', '')
-        country_name = COUNTRIES.get(flag, "Unknown")
+        flag_name = query.data.replace('user_country_', '')
         
-        # FIX: Check for missing platform
-        platform = context.user_data.get('selected_platform')
-        if not platform:
-             await query.answer("⚠️ Session expired. Please select platform again.", show_alert=True)
-             try:
-                 await query.message.delete()
-             except:
-                 pass
-             await start_command(update, context)
-             return
-        
+        # Simple cooldown check
         cooldown = 5
         last_time = user_data.get('last_number_time', 0)
         current_time = time.time()
@@ -1114,13 +839,13 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer(f"⚠️ Please wait {remaining_time} seconds.", show_alert=True)
             return
 
-        number = await asyncio.to_thread(get_number_from_file_for_platform, country_name, platform)
+        number = await asyncio.to_thread(get_number_from_file_for_country, flag_name)
         
         if not number:
             no_number_text = (
                 "<blockquote><b>😔 Sorry!</b></blockquote>\n\n"
-                f"<blockquote><b>No numbers available for {flag} {country_name} {platform} at the moment.</b>\n\n"
-                "<blockquote><b>Please try other countries or platforms:</b></blockquote>"
+                f"<blockquote><b>No numbers available for {flag_name} at the moment.</b>\n\n"
+                "<blockquote><b>Please try other countries.</b></blockquote>"
             )
             try:
                 await query.edit_message_text(no_number_text, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
@@ -1135,20 +860,21 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         users_data[user_id] = user_data
         save_json_data(USERS_FILE, users_data)
         
-        change_keyboard = InlineKeyboardMarkup([
+        # Only showing Back and OTP GROUP, no delete/change buttons
+        success_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
-            [InlineKeyboardButton("🗑️ Delete Number", callback_data=f"delete_number_{number}")],
-            [InlineKeyboardButton("🔄 Change Number", callback_data=f"change_number_{country_name}_{platform}")],
             [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
         ])
         
+        detected_name, detected_flag = detect_country_from_phone(number)
+        
         success_text = (
             "<blockquote><b>✅ Your new number is:</b></blockquote>\n\n"
-            f"<blockquote><b>🌍 Country:</b> {flag} {country_name}</blockquote>\n\n"
-            f"<blockquote><b>📱 Platform:</b> {platform}</blockquote>\n\n"
+            f"<blockquote><b>🌍 Country:</b> {detected_flag} {detected_name}</blockquote>\n\n"
+            f"<blockquote><b>📱 Platform:</b> Any</blockquote>\n\n"
             f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n"
             "<blockquote><b>💡 Tips:</b></blockquote>\n\n"
-            f"<blockquote><blockquote>• Use this number to register on {platform}</blockquote>\n\n"
+            f"<blockquote><blockquote>• Use this number to register on Any Platform</blockquote>\n\n"
             "<blockquote>• You will be notified automatically when SMS arrives</blockquote></blockquote>"
         )
         
@@ -1156,198 +882,31 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text(
                 success_text,
                 parse_mode=ParseMode.HTML,
-                reply_markup=change_keyboard
+                reply_markup=success_keyboard
             )
         except error.BadRequest:
             pass
         return
     
     elif query.data.startswith('country_'):
-        flag = query.data.split('_')[1]
-        country_name = COUNTRIES.get(flag, "Unknown")
-        context.user_data['selected_country'] = country_name
-        context.user_data['selected_flag'] = flag
+        # Admin delete logic only
+        name = query.data.replace('country_', '')
         
         if user_id == str(ADMIN_ID):
             if context.user_data.get('state') == 'REMOVING_NUMBER':
-                social_text = (
-                    f"<blockquote><b>🗑️ Which social platform do you want to remove for {flag} {country_name}?</b></blockquote>\n\n"
-                    "<blockquote><b>You can select multiple platforms:</b></blockquote>\n\n"
-                    "<blockquote>• Select one or more platforms.</blockquote>\n\n"
-                    "<blockquote>• Selected platforms will show a ✅ mark.</blockquote>\n\n"
-                    "<blockquote>• Click 'Done - Continue' when finished.</blockquote>"
-                )
-            else:
-                social_text = (
-                    f"<blockquote><b>📱 Which social platform for {flag} {country_name}?</b></blockquote>\n\n"
-                    "<blockquote><b>You can select multiple platforms:</b></blockquote>\n\n"
-                    "<blockquote>• Select one or more platforms.</blockquote>\n\n"
-                    "<blockquote>• Selected platforms will show a ✅ mark.</blockquote>\n\n"
-                    "<blockquote>• Click 'Done - Continue' when finished.</blockquote>"
-                )
-        else:
-            social_text = f"<blockquote><b>📱 Which social platform for {flag} {country_name}?</b></blockquote>"
-        
-        if user_id == str(ADMIN_ID):
-            context.user_data['selected_platforms'] = set()
-        
-        try:
-            await query.edit_message_text(
-                social_text,
-                reply_markup=get_admin_social_keyboard(),
-                parse_mode=ParseMode.HTML
-            )
-        except error.BadRequest:
-            pass
-        return
-
-    elif query.data.startswith('social_'):
-        platform = query.data.split('_')[1]
-        if user_id != str(ADMIN_ID):
-            return
-
-        country_name = context.user_data.get('selected_country', 'Unknown')
-        flag = context.user_data.get('selected_flag', '🌍')
-        
-        if platform == 'done':
-            selected_platforms = context.user_data.get('selected_platforms', set())
-            if not selected_platforms:
+                removed_count = remove_numbers_for_country(name)
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text="<blockquote><b>❌ Please select at least one platform.</b></blockquote>",
-                    parse_mode=ParseMode.HTML
-                )
-                return
-            
-            if context.user_data.get('state') == 'REMOVING_NUMBER':
-                platforms_text = ", ".join(sorted(selected_platforms))
-                removed_count = remove_numbers_for_platforms(country_name, selected_platforms)
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"<blockquote><b>✅ Removed {removed_count} numbers for {flag} {country_name} from {platforms_text}!</b></blockquote>",
+                    text=f"<blockquote><b>✅ Removed {removed_count} numbers for {name}!</b></blockquote>",
                     parse_mode=ParseMode.HTML
                 )
                 context.user_data['state'] = None
-                context.user_data.pop('selected_country', None)
-                context.user_data.pop('selected_flag', None)
-                context.user_data.pop('selected_platforms', None)
-            else:
-                context.user_data['state'] = 'ADDING_NUMBER'
-                context.user_data['selected_platforms'] = selected_platforms
-                context.user_data['selected_country'] = country_name
-                context.user_data['selected_flag'] = flag
-                platforms_text = ", ".join(sorted(selected_platforms))
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"<blockquote><b>📞 Enter numbers for {flag} {country_name} for {platforms_text}:</b></blockquote>\n\n"
-                         "<blockquote><b>Number format:</b> Digits only (8-15 digits)</blockquote>\n\n"
-                         "<blockquote><b>Multiple numbers:</b> Write each number on a new line</blockquote>\n\n"
-                         "<blockquote><b>Example:</b></blockquote>\n\n"
-                         "<blockquote><code>1234567890\n"
-                         "9876543210\n"
-                         "5555555555</code></blockquote>\n\n"
-                         "<blockquote><b>Type 'done' when finished</b></blockquote>",
-                    parse_mode=ParseMode.HTML
-                )
-        else:
-            selected_platforms = context.user_data.get('selected_platforms', set())
-            if platform in selected_platforms:
-                selected_platforms.remove(platform)
-            else:
-                selected_platforms.add(platform)
-            context.user_data['selected_platforms'] = selected_platforms
-            try:
-                await query.edit_message_reply_markup(
-                    reply_markup=get_admin_social_keyboard(selected_platforms)
-                )
-            except error.BadRequest:
-                pass
-
-    elif query.data.startswith('delete_number_'):
-        number_to_delete = query.data.split('_')[2]
         
-        users_data = load_json_data(USERS_FILE, {})
-        user_data = users_data.get(user_id, {})
-        
-        if 'phone_numbers' in user_data and number_to_delete in user_data['phone_numbers']:
-            user_data['phone_numbers'].remove(number_to_delete)
-            users_data[user_id] = user_data
-            save_json_data(USERS_FILE, users_data)
-            
-            await query.answer("🗑️ Number deleted successfully!", show_alert=True)
-            try:
-                await query.edit_message_text(
-                    "<blockquote><b>🗑️ Number deleted successfully.</b></blockquote>\n\n"
-                    "<blockquote>Click <b>🎁 Get Number</b> to get a new one.</blockquote>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=None 
-                )
-            except error.BadRequest:
-                pass
-        else:
-            await query.answer("❌ Number already deleted or not found.", show_alert=True)
-
-    elif query.data.startswith('change_number_'):
-        if len(user_data.get('phone_numbers', [])) > 0:
-             await query.answer("⚠️ Please delete your current number first.", show_alert=True)
-             return
-             
-        parts = query.data.split('_')
-        if len(parts) >= 4:
-            country_name = '_'.join(parts[2:-1])
-            platform = parts[-1]
-            
-            cooldown = 5
-            last_time = user_data.get('last_number_time', 0)
-            current_time = time.time()
-            if current_time - last_time < cooldown:
-                remaining_time = int(cooldown - (current_time - last_time))
-                await query.answer(f"⚠️ Please wait {remaining_time} seconds.", show_alert=True)
-                return
-            
-            number = await asyncio.to_thread(get_number_from_file_for_platform, country_name, platform)
-            if number:
-                user_data["phone_numbers"] = [] 
-                
-                user_data["phone_numbers"].append(number)
-                user_data["last_number_time"] = current_time
-                users_data[user_id] = user_data
-                save_json_data(USERS_FILE, users_data)
-                
-                flag = "🌍"
-                for f, c in COUNTRIES.items():
-                    if c == country_name:
-                        flag = f
-                        break
-                
-                change_keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
-                    [InlineKeyboardButton("🗑️ Delete Number", callback_data=f"delete_number_{number}")],
-                    [InlineKeyboardButton("🔄 Change Number", callback_data=f"change_number_{country_name}_{platform}")],
-                    [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
-                ])
-                
-                success_text = f"<blockquote><b>✅ Your new number is:</b></blockquote>\n\n" \
-                               f"<blockquote><b>🌍 Country:</b> {flag} {country_name}</blockquote>\n\n" \
-                               f"<blockquote><b>📱 Platform:</b> {platform}</blockquote>\n\n" \
-                               f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n" \
-                               f"<blockquote><b>OTP will be sent to your inbox.</b></blockquote>"
-                               
-                try:
-                    await query.edit_message_text(
-                        success_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=change_keyboard
-                    )
-                except error.BadRequest:
-                    pass
-
-            else:
-                await context.bot.send_message(chat_id=user_id, text="<blockquote><b>😔 No numbers are available right now. Please try again later.</b></blockquote>", parse_mode=ParseMode.HTML)
-                try:
-                    await context.bot.send_message(chat_id=ADMIN_ID, text="<blockquote><b>⚠️ Admin Alert: The bot is out of numbers! Please add new numbers.</b></blockquote>", parse_mode=ParseMode.HTML)
-                except Exception as e:
-                    logging.error(f"Failed to send alert: {e}")
+        try:
+            await query.answer()
+        except error.BadRequest:
+            pass
+        return
 
 async def handle_add_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -1355,52 +914,26 @@ async def handle_add_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_command(update, context)
         return
     
-    country = context.user_data.get('selected_country', 'Unknown')
-    platforms = context.user_data.get('selected_platforms', set())
-    
-    if not platforms:
-        await update.message.reply_text("<blockquote><b>❌ No platform selected. Please start over with /add.</b></blockquote>", parse_mode=ParseMode.HTML)
-        context.user_data['state'] = None
-        return
-    
     numbers = update.message.text.split('\n')
-    added_count = 0
-    invalid_count = 0
-    response_parts = []
+    valid_numbers = []
     
     for number_str in numbers:
         number_str = number_str.strip()
         if number_str.lower() == 'done':
-            break
+            context.user_data['state'] = None
+            await update.message.reply_text("<blockquote><b>✅ Adding process stopped.</b></blockquote>", parse_mode=ParseMode.HTML)
+            return
         
         if 8 <= len(number_str) <= 15 and number_str.isdigit():
-            for platform in platforms:
-                await asyncio.to_thread(add_number_to_file, number_str, country, platform)
-            added_count += 1
-            response_parts.append(f"✅ <code>{number_str}</code> added")
-        else:
-            invalid_count += 1
-            response_parts.append(f"❌ <code>{number_str}</code> invalid number")
+            valid_numbers.append(number_str)
     
-    final_response = (
-        f"<blockquote><b>✅ Number adding complete</b></blockquote>\n\n"
-        f"<blockquote><b>Total added:</b> {added_count}</blockquote>\n\n"
-        f"<blockquote><b>Invalid:</b> {invalid_count}</blockquote>\n\n"
+    await asyncio.to_thread(add_numbers_to_file, valid_numbers)
+    
+    await update.message.reply_text(
+        f"<blockquote><b>✅ Added {len(valid_numbers)} numbers successfully!</b></blockquote>\n\n"
+        "<blockquote>Type 'done' to finish or send more numbers.</blockquote>",
+        parse_mode=ParseMode.HTML
     )
-    
-    if added_count > 0:
-        final_response += "<b>Details:</b>\n\n" + "\n\n".join([f"<blockquote>{part}</blockquote>" for part in response_parts])
-    
-    if any(n.strip().lower() == 'done' for n in numbers):
-        final_response += "\n\n<blockquote><b>✅ Number adding finished. Return to /start.</b></blockquote>"
-        context.user_data['state'] = None
-        context.user_data.pop('selected_country', None)
-        context.user_data.pop('selected_flag', None)
-        context.user_data.pop('selected_platforms', None)
-    else:
-        final_response += "\n\n<blockquote><b>...Enter more numbers or type 'done' to finish.</b></blockquote>"
-    
-    await update.message.reply_text(final_response, parse_mode=ParseMode.HTML)
 
 async def handle_withdrawal_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('state') != 'AWAITING_WITHDRAWAL_INFO':
@@ -1481,12 +1014,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Handle Keyboard Buttons
         if text == "🎁 Get Number":
-            social_text = "<blockquote><b>📱 Which social platform do you want a number for?</b></blockquote>"
-            social_keyboard = get_user_social_keyboard()
-            if len(social_keyboard.inline_keyboard) == 1 and social_keyboard.inline_keyboard[0][0].text == "🔙 Back":
-                social_text = "<blockquote><b>😔 No numbers available at the moment. Please try again later.</b></blockquote>"
+            country_text = "<blockquote><b>🌍 Which country do you want a number from?</b></blockquote>"
+            country_keyboard, no_countries = get_user_country_keyboard()
+            
+            if no_countries:
+                 country_text = "<blockquote><b>😔 No numbers available at the moment. Please try again later.</b></blockquote>"
+                 
             try:
-                await update.message.reply_text(social_text, reply_markup=social_keyboard, parse_mode=ParseMode.HTML)
+                await update.message.reply_text(country_text, reply_markup=country_keyboard, parse_mode=ParseMode.HTML)
             except error.BadRequest:
                 pass
         elif text == "👤 Account":
@@ -1545,8 +1080,6 @@ async def sms_watcher_task(application: Application):
                     try:
                         sms_data = json.loads(line)
                         phone = sms_data.get('phone')
-                        country = sms_data.get('country', 'N/A')
-                        provider = sms_data.get('provider', 'N/A')
                         message = sms_data.get('message')
                         otp = extract_otp_from_text(message)
                         
@@ -1556,23 +1089,16 @@ async def sms_watcher_task(application: Application):
                         if unique_key in sent_sms_keys:
                             continue
 
-                        number_country, number_platform, number_flag = get_number_info(phone)
+                        country = sms_data.get('country', 'N/A')
+                        provider = sms_data.get('provider', 'N/A')
+                        detected_name, detected_flag = detect_country_from_phone(phone)
+                        display_country = detected_name if detected_name != "Unknown" else country
                         
-                        if not number_country:
-                            detected_country, detected_flag = detect_country_from_phone(phone)
-                            display_country = detected_country
-                            display_flag = detected_flag
-                        else:
-                            display_country = number_country
-                            display_flag = number_flag
-                        
-                        display_platform = number_platform if number_platform else provider
-                        owner_id = phone_to_user_map.get(phone)
-                        
-                        group_keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
-                        ])
-                        
+                        service_icon = "📱"
+                        service_name = provider
+                        service_display = "OTP"
+                        code_label = "OTP Code"
+
                         is_instagram = "instagram" in provider.lower() or "instagram" in message.lower()
                         is_whatsapp = "whatsapp" in provider.lower() or "whatsapp" in message.lower()
                         
@@ -1595,7 +1121,7 @@ async def sms_watcher_task(application: Application):
                         group_msg = (
                             f"{service_icon} <b>New {service_display}!</b> ✨\n\n"
                             f"📞 <b>Number:</b> <code>{hide_number(phone)}</code>\n\n"
-                            f"🌍 <b>Country:</b> {html_escape(display_country)} {display_flag}\n\n"
+                            f"🌍 <b>Country:</b> {html_escape(display_country)} {detected_flag}\n\n"
                             f"🆔 <b>Service:</b> {html_escape(service_name)}\n\n"
                             f"🔑 <b>{code_label}:</b> <code>{otp}</code>\n\n"
                             f"📝 <b>Full Message:</b>\n\n"
@@ -1606,9 +1132,10 @@ async def sms_watcher_task(application: Application):
                             'chat_id': GROUP_ID, 
                             'text': group_msg, 
                             'parse_mode': ParseMode.HTML, 
-                            'reply_markup': group_keyboard
+                            'reply_markup': InlineKeyboardMarkup([[InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]])
                         })
 
+                        owner_id = phone_to_user_map.get(phone)
                         if owner_id:
                             if owner_id in users_data:
                                 users_data[owner_id]['balance'] = users_data[owner_id].get('balance', 0.0) + SMS_AMOUNT
@@ -1621,7 +1148,7 @@ async def sms_watcher_task(application: Application):
                             inbox_msg = (
                                 f"{service_icon} <b>New {service_display}!</b> ✨\n\n"
                                 f"📞 <b>Number:</b> <code>{hide_number(phone)}</code>\n\n"
-                                f"🌍 <b>Country:</b> {html_escape(display_country)} {display_flag}\n\n"
+                                f"🌍 <b>Country:</b> {html_escape(display_country)} {detected_flag}\n\n"
                                 f"🆔 <b>Service:</b> {html_escape(service_name)}\n\n"
                                 f"🔑 <b>{code_label}:</b> <code>{otp}</code>\n\n"
                                 f"📝 <b>Full Message:</b>\n\n"
@@ -1636,7 +1163,6 @@ async def sms_watcher_task(application: Application):
                                 'reply_markup': inbox_keyboard
                             })
                             
-                            # Call the logging function here
                             asyncio.create_task(log_sms_to_d1({
                                 "phone": phone,
                                 "country": display_country,
