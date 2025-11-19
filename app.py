@@ -21,9 +21,6 @@ import telegram
 CONFIG_FILE = 'config.txt'
 
 def load_config():
-    """
-    Loads configuration from config.txt.
-    """
     if not os.path.exists(CONFIG_FILE):
         logging.critical(f"{CONFIG_FILE} not found! Please create it before running the bot.")
         raise FileNotFoundError(f"{CONFIG_FILE} not found! Please create it.")
@@ -932,7 +929,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<blockquote>Click the 🎁 Get Number button below to get your number:</blockquote>\n\n"
     )
 
-    # Using ReplyKeyboardMarkup (Persistent Keyboard)
     await update.message.reply_text(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -955,13 +951,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         return
         
     if query.data == 'main_menu':
-        # Delete the inline menu since main menu is in the keyboard
         try:
             await query.message.delete()
         except Exception:
             pass
-        # Optionally re-send start message if needed, but usually just clearing is fine.
-        # To be safe and clear state, we can call start_command
         await start_command(update, context)
         return
 
@@ -1053,9 +1046,23 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         return
 
     elif query.data.startswith('user_country_'):
+        if len(user_data.get('phone_numbers', [])) > 0:
+            await query.answer("⚠️ You already have a number. Please delete it first.", show_alert=True)
+            return
+
         flag = query.data.split('user_country_')[1]
         country_name = COUNTRIES.get(flag, "Unknown")
         platform = context.user_data.get('selected_platform', 'Unknown')
+        
+        # Check cooldown
+        cooldown = 5
+        last_time = user_data.get('last_number_time', 0)
+        current_time = time.time()
+        if current_time - last_time < cooldown:
+            remaining_time = int(cooldown - (current_time - last_time))
+            await query.answer(f"⚠️ Please wait {remaining_time} seconds.", show_alert=True)
+            return
+
         number = await asyncio.to_thread(get_number_from_file_for_platform, country_name, platform)
         
         if not number:
@@ -1070,9 +1077,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 pass
             return
         
-        users_data = load_json_data(USERS_FILE, {})
-        user_data = users_data.get(user_id, {"phone_numbers": [], "balance": 0.0, "last_number_time": None})
-        
         current_time = time.time()
         user_data["phone_numbers"].append(number)
         user_data["phone_numbers"] = user_data["phone_numbers"][-3:]
@@ -1082,7 +1086,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         
         change_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
-            [InlineKeyboardButton("🔄 Change Number", callback_data=f"change_number_{country_name}_{platform}")],
+            [InlineKeyboardButton("🗑️ Delete Number", callback_data=f"delete_number_{number}")],
             [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
         ])
         
@@ -1096,7 +1100,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "<blockquote>• You will be notified automatically when SMS arrives</blockquote></blockquote>"
         )
         
-        # Directly edit the message with the success text
+        # Directly edit message with success text
         try:
             await query.edit_message_text(
                 success_text,
@@ -1208,23 +1212,56 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             except error.BadRequest:
                 pass
 
+    elif query.data.startswith('delete_number_'):
+        number_to_delete = query.data.split('_')[2]
+        
+        users_data = load_json_data(USERS_FILE, {})
+        user_data = users_data.get(user_id, {})
+        
+        if 'phone_numbers' in user_data and number_to_delete in user_data['phone_numbers']:
+            user_data['phone_numbers'].remove(number_to_delete)
+            users_data[user_id] = user_data
+            save_json_data(USERS_FILE, users_data)
+            
+            await query.answer("🗑️ Number deleted successfully!", show_alert=True)
+            try:
+                await query.edit_message_text(
+                    "<blockquote><b>🗑️ Number deleted successfully.</b></blockquote>\n\n"
+                    "<blockquote>Click <b>🎁 Get Number</b> to get a new one.</blockquote>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None 
+                )
+            except error.BadRequest:
+                pass
+        else:
+            await query.answer("❌ Number already deleted or not found.", show_alert=True)
+
     elif query.data.startswith('change_number_'):
+        # "Change Number" is kept for backward compatibility or logic reuse but 
+        # strictly, if the user has a number, they must delete it first via 'delete_number_'.
+        # If 'change number' button is pressed, it implies they want to SWAP.
+        # But if the rule is "delete first", we can make this button do the deletion and re-fetch automatically?
+        # For now, let's disable it or make it show the alert to delete.
+        # OR: Implement swap logic which is effectively delete + get new.
+        # Given user said "without deleting user can't get another", I will make this button enforce that rule.
+        
+        if len(user_data.get('phone_numbers', [])) > 0:
+             # We can allow "Change Number" to act as "Delete & Swap" if desired,
+             # BUT to strictly follow "delete first", we show alert.
+             await query.answer("⚠️ Please delete your current number first.", show_alert=True)
+             return
+             
         parts = query.data.split('_')
         if len(parts) >= 4:
             country_name = '_'.join(parts[2:-1])
             platform = parts[-1]
             
-            users_data = load_json_data(USERS_FILE, {})
-            user_data = users_data.get(user_id, {})
-            if 'phone_numbers' not in user_data or not isinstance(user_data['phone_numbers'], list):
-                user_data['phone_numbers'] = []
-
-            cooldown = 10
+            cooldown = 5
             last_time = user_data.get('last_number_time', 0)
             current_time = time.time()
             if current_time - last_time < cooldown:
                 remaining_time = int(cooldown - (current_time - last_time))
-                await context.bot.send_message(chat_id=user_id, text=f"<blockquote><b>⚠️ Please wait {remaining_time} seconds.</b></blockquote>", parse_mode=ParseMode.HTML)
+                await query.answer(f"⚠️ Please wait {remaining_time} seconds.", show_alert=True)
                 return
             
             number = await asyncio.to_thread(get_number_from_file_for_platform, country_name, platform)
@@ -1243,7 +1280,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 
                 change_keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)],
-                    [InlineKeyboardButton("🔄 Change Number", callback_data=f"change_number_{country_name}_{platform}")],
+                    [InlineKeyboardButton("🗑️ Delete Number", callback_data=f"delete_number_{number}")],
                     [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
                 ])
                 
@@ -1252,12 +1289,18 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                                f"<blockquote><b>📱 Platform:</b> {platform}</blockquote>\n\n" \
                                f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n" \
                                f"<blockquote><b>OTP will be sent to your inbox.</b></blockquote>"
+                               
+                await MESSAGE_QUEUE.put({
+                    'chat_id': user_id,
+                    'text': success_text,
+                    'parse_mode': ParseMode.HTML,
+                    'reply_markup': change_keyboard
+                })
                 
                 try:
                     await query.edit_message_text(
-                        success_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=change_keyboard
+                        "<blockquote><b>✅ Your number has been sent successfully. Please check your inbox.</b></blockquote>",
+                        parse_mode=ParseMode.HTML
                     )
                 except error.BadRequest:
                     pass
@@ -1440,7 +1483,10 @@ async def sms_watcher_task(application: Application):
     global manager_instance
     if not manager_instance:
         manager_instance = NewPanelSmsManager()
-        
+    
+    # Load sent keys once at startup to avoid re-reading file constantly
+    sent_sms_keys = load_sent_sms_keys()
+    
     while not shutdown_event.is_set():
         try:
             await asyncio.to_thread(manager_instance.scrape_and_save_all_sms)
@@ -1450,7 +1496,7 @@ async def sms_watcher_task(application: Application):
                 continue
 
             users_data = load_json_data(USERS_FILE, {})
-            sent_sms_keys = load_sent_sms_keys()
+            # No longer reloading sent_sms_keys here to preserve state and prevent race conditions
             
             phone_to_user_map = {}
             for uid, udata in users_data.items():
@@ -1458,14 +1504,13 @@ async def sms_watcher_task(application: Application):
                     phone_to_user_map[number] = uid
             
             data_changed = False
+            keys_changed = False
 
             with open(SMS_CACHE_FILE, 'r', encoding='utf-8') as f:
                 for line in f:
                     try:
                         sms_data = json.loads(line)
                         phone = sms_data.get('phone')
-                        country = sms_data.get('country', 'N/A')
-                        provider = sms_data.get('provider', 'N/A')
                         message = sms_data.get('message')
                         otp = extract_otp_from_text(message)
                         
@@ -1475,6 +1520,8 @@ async def sms_watcher_task(application: Application):
                         if unique_key in sent_sms_keys:
                             continue
 
+                        country = sms_data.get('country', 'N/A')
+                        provider = sms_data.get('provider', 'N/A')
                         number_country, number_platform, number_flag = get_number_info(phone)
                         
                         if not number_country:
@@ -1488,10 +1535,11 @@ async def sms_watcher_task(application: Application):
                         display_platform = number_platform if number_platform else provider
                         owner_id = phone_to_user_map.get(phone)
                         
-                        group_keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
-                        ])
-                        
+                        service_icon = "📱"
+                        service_name = provider
+                        service_display = "OTP"
+                        code_label = "OTP Code"
+
                         is_instagram = "instagram" in provider.lower() or "instagram" in message.lower()
                         is_whatsapp = "whatsapp" in provider.lower() or "whatsapp" in message.lower()
                         
@@ -1505,11 +1553,6 @@ async def sms_watcher_task(application: Application):
                             service_name = "WhatsApp"
                             service_display = "WhatsApp"
                             code_label = "WhatsApp Code"
-                        else:
-                            service_icon = "📱"
-                            service_name = provider
-                            service_display = "OTP"
-                            code_label = "OTP Code"
                         
                         group_msg = (
                             f"{service_icon} <b>New {service_display}!</b> ✨\n\n"
@@ -1520,6 +1563,10 @@ async def sms_watcher_task(application: Application):
                             f"📝 <b>Full Message:</b>\n\n"
                             f"<blockquote>{html_escape(message)}</blockquote>"
                         )
+                        
+                        group_keyboard = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("Number Bot", url="https://t.me/pgotp")]
+                        ])
 
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 
@@ -1567,14 +1614,16 @@ async def sms_watcher_task(application: Application):
                             sent_sms_keys.add(number_otp_key)
 
                         sent_sms_keys.add(unique_key)
+                        keys_changed = True
 
                     except Exception as e:
                         logging.error(f"Error processing SMS line: {e}")
             
             if data_changed:
                 save_json_data(USERS_FILE, users_data)
-                
-            save_sent_sms_keys(sent_sms_keys)
+            
+            if keys_changed:
+                save_sent_sms_keys(sent_sms_keys)
 
         except Exception as e:
             logging.error(f"Error in sms_watcher_task: {e}")
