@@ -150,7 +150,7 @@ LAST_SESSION_FAILURE_NOTIFICATION = 0
 # Setup logging to TERMINAL (No file)
 logging.basicConfig(
     stream=sys.stdout, 
-    level=logging.INFO, # Changed to INFO to see more details in terminal
+    level=logging.INFO, 
     format='%(asctime)s %(levelname)s %(message)s'
 )
 
@@ -767,11 +767,12 @@ class NewPanelSmsManager:
             for row in sms_data:
                 try:
                     if len(row) >= 6:
-                        time_str = row[0] if len(row) > 0 else "N/A"
-                        country_provider = row[1] if len(row) > 1 else "Unknown"
-                        phone = row[2] if len(row) > 2 else "N/A"
-                        service = row[3] if len(row) > 3 else "Unknown Service"
-                        message = row[5] if len(row) > 5 else "N/A"
+                        # FIX: Cast ALL fields to strings to prevent "int is not iterable" errors
+                        time_str = str(row[0]) if row[0] is not None else "N/A"
+                        country_provider = str(row[1]) if row[1] is not None else "Unknown"
+                        phone = str(row[2]) if row[2] is not None else "N/A"
+                        service = str(row[3]) if row[3] is not None else "Unknown Service"
+                        message = str(row[5]) if row[5] is not None else "N/A"
                         
                         country = "Unknown"
                         if " " in country_provider:
@@ -1670,7 +1671,7 @@ async def sms_watcher_task(application: Application):
         except Exception as e:
             logging.error(f"Error in sms_watcher_task: {e}")
         
-        await asyncio.sleep(2)
+        await asyncio.sleep(15)
 
 async def test_group_access(application):
     try:
