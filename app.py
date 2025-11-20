@@ -428,6 +428,7 @@ class NewPanelSmsManager:
         for row in sms_data:
             try:
                 if len(row) >= 6:
+                    # FIX: Cast ALL fields to strings to prevent "int is not iterable" errors
                     time_str = str(row[0]) if row[0] is not None else "N/A"
                     country_provider = str(row[1]) if row[1] is not None else "Unknown"
                     phone = str(row[2]) if row[2] is not None else "N/A"
@@ -549,14 +550,17 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     
+    # Sort users by balance
     sorted_users = sorted(USERS_CACHE.items(), key=lambda x: x[1].get('balance', 0.0), reverse=True)[:10]
     
     msg = "<b>🏆 Top 10 Users by Balance</b>\n\n"
     for i, (uid, data) in enumerate(sorted_users, 1):
         name = html_escape(data.get('first_name', 'Unknown'))
         bal = data.get('balance', 0.0)
-        msg += f"{i}. <b>{name}</b> (<code>{uid}</code>): <b>${bal:.3f}</b>\n"
+        # Modified: Hide User ID
+        msg += f"{i}. <b>{name}</b>: <b>${bal:.3f}</b>\n"
     
+    # Add Admin Stats if user is Admin
     if user_id == str(ADMIN_ID):
         total_members = len(USERS_CACHE)
         total_balance = sum(u.get('balance', 0.0) for u in USERS_CACHE.values())
@@ -783,18 +787,15 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 sent_msg = await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
                 
                 # --- Clean Inbox Logic ---
-                # Keep track of message IDs to delete older ones
                 if 'active_msg_ids' not in user: user['active_msg_ids'] = []
-                
                 user['active_msg_ids'].append(sent_msg.message_id)
                 
-                # If we have more than 3, remove the oldest
                 while len(user['active_msg_ids']) > 3:
                     old_id = user['active_msg_ids'].pop(0)
                     try:
                         await context.bot.delete_message(chat_id=user_id, message_id=old_id)
                     except:
-                        pass # Message might already be deleted
+                        pass
                 
                 USERS_CACHE[user_id] = user
                 asyncio.to_thread(background_save_users)
@@ -866,7 +867,7 @@ async def sms_watcher_task(application: Application):
                             f"<b>📞 Number:</b> <code>{hide_number(phone)}</code>\n"
                             f"<b>🌍 Country:</b> {html_escape(name)} {flag}\n"
                             f"<b>🆔 Service:</b> <code>{html_escape(data.get('provider','Service'))}</code>\n"
-                            f"<b>🔑 Code:</b> <pre>{otp}</pre>\n"
+                            f"<b>🔑 Code:</b> <code>{otp}</code>\n"
                             f"<i>📝 Message:</i>\n<blockquote>{html_escape(msg_text)}</blockquote>"
                         )
                         
@@ -889,7 +890,7 @@ async def sms_watcher_task(application: Application):
                             user_msg = (
                                 f"<b>🔔 New OTP Received!</b> ✨\n\n"
                                 f"<b>📞 Number:</b> <code>{phone}</code>\n"
-                                f"<b>🔑 Code:</b> <pre>{otp}</pre>\n"
+                                f"<b>🔑 Code:</b> <code>{otp}</code>\n"
                                 f"<b>💰 Earned: ${SMS_AMOUNT}</b>"
                             )
                             await MESSAGE_QUEUE.put({'chat_id': owner, 'text': user_msg, 'parse_mode': ParseMode.HTML})
