@@ -40,7 +40,12 @@ TELEGRAM_BOT_TOKEN = "7811577720:AAGNoS9KEaziHpllsdYu1v2pGqQU7TVqJGE"
 GROUP_ID = -1003009605120
 PAYMENT_CHANNEL_ID = -1003184589906
 ADMIN_ID = 5473188537
-GROUP_LINK = "https://t.me/pgotp"
+
+# Links
+GROUP_LINK = "https://t.me/guaranteesms"
+NUMBER_BOT_LINK = "https://t.me/ToolExprole_bot"
+UPDATE_GROUP_LINK = "https://chat.whatsapp.com/IR1iW9eePp3Kfx44sKO6u9"
+
 SMS_AMOUNT = 0.003  # $0.003 per OTP
 WITHDRAWAL_LIMIT = 1.0  # Minimum $1.00 to withdraw
 
@@ -269,6 +274,7 @@ def get_available_countries_and_counts():
     return sorted(result, key=lambda x: x[1]) 
 
 def add_numbers_to_file(number_list):
+    """Adds a list of numbers to numbers.txt file."""
     if not number_list: return
     with FILE_LOCK:
         with open(NUMBERS_FILE, 'a', encoding='utf-8') as f:
@@ -276,12 +282,12 @@ def add_numbers_to_file(number_list):
                 clean_num = num.strip()
                 if clean_num.isdigit() and len(clean_num) > 5:
                     f.write(clean_num + "\n")
+                    logging.info(f"Added number: {clean_num}")
 
-def remove_numbers_for_country(country_name):
-    if not os.path.exists(NUMBERS_FILE):
-        return 0
-    
-    target_country = str(country_name).strip().lower()
+def delete_specific_numbers(number_list):
+    """Removes specific numbers from the file."""
+    if not os.path.exists(NUMBERS_FILE): return 0
+    target_numbers = set(n.strip() for n in number_list)
     removed_count = 0
     
     with FILE_LOCK:
@@ -290,12 +296,10 @@ def remove_numbers_for_country(country_name):
         
         remaining_lines = []
         for line in lines:
-            number = line.strip()
-            if not number: continue
-            
-            detected_name, _ = detect_country_from_phone(number)
-            if detected_name.lower() == target_country:
+            num = line.strip()
+            if num in target_numbers:
                 removed_count += 1
+                logging.info(f"Removed number: {num}")
             else:
                 remaining_lines.append(line)
         
@@ -395,7 +399,6 @@ class NewPanelSmsManager:
         try:
             resp = requests.get(self.get_api_url(), headers=headers, timeout=10)
             
-            # Check if response is HTML (login page/error) instead of JSON
             if resp.text.strip().startswith("<"):
                 logging.warning("Session Expired: API returned HTML instead of JSON.")
                 _send_critical_admin_alert("⚠️ Session Expired! Please update PHPSESSID.")
@@ -425,17 +428,20 @@ class NewPanelSmsManager:
         for row in sms_data:
             try:
                 if len(row) >= 6:
-                    phone = str(row[2]) if row[2] else "N/A"
-                    message = str(row[5]) if row[5] else "N/A"
-                    provider = str(row[3]) if row[3] else "Unknown"
-                    country_str = str(row[1]) if row[1] else "Unknown"
+                    time_str = str(row[0]) if row[0] is not None else "N/A"
+                    country_provider = str(row[1]) if row[1] is not None else "Unknown"
+                    phone = str(row[2]) if row[2] is not None else "N/A"
+                    service = str(row[3]) if row[3] is not None else "Unknown Service"
+                    message = str(row[5]) if row[5] is not None else "N/A"
                     
-                    country = country_str.split()[0] if " " in country_str else "Unknown"
+                    country = "Unknown"
+                    if " " in country_provider:
+                        country = country_provider.split()[0]
                     
                     if phone and message:
                         sms_list.append({
                             'country': country,
-                            'provider': provider,
+                            'provider': service,
                             'message': message,
                             'phone': phone
                         })
@@ -505,6 +511,12 @@ def get_admin_country_keyboard(page=0):
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
     return InlineKeyboardMarkup(keyboard)
 
+def get_main_menu_keyboard():
+    keyboard = [
+        [KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 async def sms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user_data = USERS_CACHE.get(user_id)
@@ -531,14 +543,34 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
-    context.user_data['state'] = 'REMOVING_NUMBER'
-    await update.message.reply_text("<blockquote><b>🗑️ Select country to remove numbers:</b></blockquote>", reply_markup=get_admin_country_keyboard(0), parse_mode=ParseMode.HTML)
+    context.user_data['state'] = 'DELETING_NUMBER'
+    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text):</b></blockquote>", parse_mode=ParseMode.HTML)
+
+async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    
+    sorted_users = sorted(USERS_CACHE.items(), key=lambda x: x[1].get('balance', 0.0), reverse=True)[:10]
+    
+    msg = "<b>🏆 Top 10 Users by Balance</b>\n\n"
+    for i, (uid, data) in enumerate(sorted_users, 1):
+        name = html_escape(data.get('first_name', 'Unknown'))
+        bal = data.get('balance', 0.0)
+        msg += f"{i}. <b>{name}</b> (<code>{uid}</code>): <b>${bal:.3f}</b>\n"
+    
+    if user_id == str(ADMIN_ID):
+        total_members = len(USERS_CACHE)
+        total_balance = sum(u.get('balance', 0.0) for u in USERS_CACHE.values())
+        
+        msg += "\n<b>📊 Admin Statistics</b>\n"
+        msg += f"👥 Total Members: {total_members}\n"
+        msg += f"💰 Total System Balance: ${total_balance:.3f}"
+        
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global PHPSESSID
     if str(update.effective_user.id) != str(ADMIN_ID) or not context.args: return
     PHPSESSID = context.args[0]
-    # Save to config file logic here (simplified for brevity)
     await update.message.reply_text("✅ Session Updated")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -548,13 +580,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in USERS_CACHE:
         USERS_CACHE[user_id] = {
             "username": user.username, "first_name": user.first_name,
-            "phone_numbers": [], "balance": 0.0, "last_number_time": 0
+            "phone_numbers": [], "balance": 0.0, "last_number_time": 0, "active_msg_ids": []
         }
-        # Schedule save in background
-        await asyncio.to_thread(background_save_users)
+        asyncio.to_thread(background_save_users)
     
     keyboard = [[KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]]
-    await context.bot.send_message(chat_id=user_id, text="<b>👋 Welcome!</b>", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), parse_mode=ParseMode.HTML)
+    welcome_text = (
+        "<b>👋 Welcome!</b>\n\n"
+        "<i>Click the 🎁 Get Number button below to get your number:</i>"
+    )
+    await context.bot.send_message(chat_id=user_id, text=welcome_text, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), parse_mode=ParseMode.HTML)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get('state')
@@ -572,25 +607,96 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.to_thread(add_numbers_to_file, numbers)
             await update.message.reply_text(f"✅ Added {len(numbers)} numbers.")
             
-    elif state == 'AWAITING_WITHDRAWAL_INFO':
+    elif state == 'DELETING_NUMBER' and user_id == str(ADMIN_ID):
+        if text.lower() == 'done':
+            context.user_data['state'] = None
+            await update.message.reply_text("✅ Done.")
+            return
+        
+        numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
+        if numbers:
+            count = await asyncio.to_thread(delete_specific_numbers, numbers)
+            await update.message.reply_text(f"✅ Deleted {count} numbers.")
+
+    elif state == 'AWAITING_WITHDRAWAL_AMOUNT':
         user = USERS_CACHE.get(user_id)
-        if user:
-            amount = user['balance']
-            user['balance'] = 0.0
-            await asyncio.to_thread(background_save_users)
+        try:
+            requested_amount = float(text.strip())
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount. Please enter a number.")
+            return
+
+        user_balance = user.get('balance', 0)
+
+        if requested_amount > user_balance:
+            await update.message.reply_text("❌ You cannot withdraw more than your current balance.")
+            return
+        
+        if requested_amount < WITHDRAWAL_LIMIT:
+            await update.message.reply_text(f"❌ Minimum withdrawal amount is ${WITHDRAWAL_LIMIT}.")
+            return
+        
+        context.user_data['withdraw_amount'] = requested_amount
+        context.user_data['state'] = None 
+
+        keyboard = [
+            [InlineKeyboardButton("Bkash", callback_data='withdraw_method_Bkash')],
+            [InlineKeyboardButton("❌ Cancel", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"Withdrawing: ${requested_amount:.3f}\n\n"
+            "<b>💸 Select withdrawal method:</b>", 
+            parse_mode=ParseMode.HTML, 
+            reply_markup=reply_markup
+        )
+        return
             
-            msg = f"<b>💸 Withdrawal Request</b>\nUser: {user_id}\nAmount: ${amount:.3f}\nInfo: {text}"
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Approve", callback_data=f'admin_approve_{user_id}_{amount}'),
-                 InlineKeyboardButton("Decline", callback_data=f'admin_decline_{user_id}_{amount}')]
-            ])
+    elif state and state.startswith('AWAITING_WITHDRAWAL_ACCOUNT_'):
+        method = context.user_data.get('withdraw_method')
+        account_number = text.strip()
+        user = USERS_CACHE.get(user_id)
+
+        amount_to_withdraw = context.user_data.get('withdraw_amount')
+        if not amount_to_withdraw:
+            await update.message.reply_text("❌ An error occurred. Please start over.")
+            context.user_data['state'] = None
+            return
+
+        if user.get('balance', 0) < amount_to_withdraw:
+            await update.message.reply_text("❌ Insufficient balance.")
+            context.user_data['state'] = None
+            return
+
+        old_balance = user['balance']
+        user['balance'] -= amount_to_withdraw
+        logging.info(f"User {user_id} balance reduced by {amount_to_withdraw:.3f}. Old: {old_balance:.3f}, New: {user['balance']:.3f}")
+        await asyncio.to_thread(background_save_users)
+        
+        msg = (f"<b>💸 Withdrawal Request</b>\n"
+               f"User: {user_id}\n"
+               f"Amount: ${amount_to_withdraw:.3f}\n"
+               f"Method: {method}\n"
+               f"Account: {account_number}")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Approve", callback_data=f'admin_approve_{user_id}_{amount_to_withdraw}'),
+             InlineKeyboardButton("Decline", callback_data=f'admin_decline_{user_id}_{amount_to_withdraw}')]
+        ])
+        
+        try:
             await context.bot.send_message(chat_id=PAYMENT_CHANNEL_ID, text=msg, reply_markup=kb, parse_mode=ParseMode.HTML)
-            
+            await update.message.reply_text("✅ Your withdrawal request has been submitted.")
+        except Exception as e:
+            user['balance'] += amount_to_withdraw
+            await asyncio.to_thread(background_save_users)
+            logging.error(f"Error sending withdrawal: {e}")
+            await update.message.reply_text("❌ Error processing withdrawal.")
+
         context.user_data['state'] = None
-        await update.message.reply_text("✅ Request Submitted.")
+        return
 
     elif text == "🎁 Get Number":
-        country_text = "<blockquote><b>🌍 Which country do you want a number from?</b></blockquote>"
+        country_text = "<b>🌍 Which country do you want a number from?</b>"
         kb, empty = await asyncio.to_thread(get_user_country_keyboard)
         if empty: country_text = "<b>😔 No numbers available.</b>"
         await update.message.reply_text(country_text, reply_markup=kb, parse_mode=ParseMode.HTML)
@@ -598,7 +704,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👤 Account":
         user = USERS_CACHE.get(user_id, {})
         bal = user.get('balance', 0.0)
-        msg = f"<blockquote><b>👤 Account</b></blockquote>\n\n<blockquote><b>Name:</b> {html_escape(user.get('first_name'))}</blockquote>\n<blockquote><b>Balance:</b> ${bal:.3f}</blockquote>"
+        msg = (
+            f"<b>👤 Your Account</b>\n\n"
+            f"<b>Name:</b> {html_escape(user.get('first_name'))}\n"
+            f"<b>User:</b> @{html_escape(user.get('username', 'N/A'))}\n"
+            f"<b>💰 Balance:</b> ${bal:.3f}"
+        )
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("💸 Withdraw", callback_data='withdraw'), InlineKeyboardButton("🔙 Back", callback_data='main_menu')]])
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
     else:
@@ -623,8 +734,21 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if user.get('balance', 0) < WITHDRAWAL_LIMIT:
             await query.answer(f"⚠️ Min withdraw: ${WITHDRAWAL_LIMIT}", show_alert=True)
             return
-        context.user_data['state'] = 'AWAITING_WITHDRAWAL_INFO'
-        await query.edit_message_text("<b>💸 Send payment info:</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]]))
+        
+        context.user_data['state'] = 'AWAITING_WITHDRAWAL_AMOUNT'
+        
+        await query.edit_message_text(
+            "<b>💸 Please enter the amount you want to withdraw:</b>", 
+            parse_mode=ParseMode.HTML, 
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]])
+        )
+        return
+
+    if data.startswith('withdraw_method_'):
+        method = data.split('_')[2]
+        context.user_data['withdraw_method'] = method
+        context.user_data['state'] = f'AWAITING_WITHDRAWAL_ACCOUNT_{method}'
+        await query.edit_message_text(f"<b>💸 Enter your {method} account number:</b>", parse_mode=ParseMode.HTML)
         return
 
     if data.startswith('user_country_'):
@@ -646,17 +770,35 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             
             name, flag = detect_country_from_phone(number)
             msg = (
-                f"<blockquote><b>✅ Your new number:</b></blockquote>\n\n"
-                f"<blockquote><b>🌍 Country:</b> {flag} {name}</blockquote>\n\n"
-                f"<blockquote><b>📞 Number:</b> <code>{number}</code></blockquote>\n\n"
-                "<blockquote>• You will be notified when SMS arrives</blockquote>"
+                f"<b>🎉 Number Acquired!</b>\n\n"
+                f"<b>🌍 Country:</b> {flag} <i>{name}</i>\n\n"
+                f"<b>📞 Number:</b> <code>{number}</code>\n\n"
+                f"<i>⏳ Waiting for SMS...</i>"
             )
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)]
             ])
-            # Edits message directly, cleaner than sending new one
+            
             try:
-                await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
+                sent_msg = await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
+                
+                # --- Clean Inbox Logic ---
+                # Keep track of message IDs to delete older ones
+                if 'active_msg_ids' not in user: user['active_msg_ids'] = []
+                
+                user['active_msg_ids'].append(sent_msg.message_id)
+                
+                # If we have more than 3, remove the oldest
+                while len(user['active_msg_ids']) > 3:
+                    old_id = user['active_msg_ids'].pop(0)
+                    try:
+                        await context.bot.delete_message(chat_id=user_id, message_id=old_id)
+                    except:
+                        pass # Message might already be deleted
+                
+                USERS_CACHE[user_id] = user
+                asyncio.to_thread(background_save_users)
+                
             except:
                 pass
         else:
@@ -718,28 +860,36 @@ async def sms_watcher_task(application: Application):
                         owner = phone_map.get(phone)
                         name, flag = detect_country_from_phone(phone)
                         
+                        # STYLING UPDATE: Group Message
                         group_msg = (
-                            f"📱 <b>New OTP!</b> ✨\n\n"
-                            f"📞 <b>Number:</b> <code>{hide_number(phone)}</code>\n\n"
-                            f"🌍 <b>Country:</b> {html_escape(name)} {flag}\n\n"
-                            f"🆔 <b>Service:</b> {html_escape(data.get('provider','Service'))}\n\n"
-                            f"🔑 <b>Code:</b> <code>{otp}</code>\n\n"
-                            f"📝 <b>Message:</b>\n<blockquote>{html_escape(msg_text)}</blockquote>"
+                            f"<b>🔔 New OTP Received!</b> ✨\n\n"
+                            f"<b>📞 Number:</b> <code>{hide_number(phone)}</code>\n"
+                            f"<b>🌍 Country:</b> {html_escape(name)} {flag}\n"
+                            f"<b>🆔 Service:</b> <code>{html_escape(data.get('provider','Service'))}</code>\n"
+                            f"<b>🔑 Code:</b> <pre>{otp}</pre>\n"
+                            f"<i>📝 Message:</i>\n<blockquote>{html_escape(msg_text)}</blockquote>"
                         )
+                        
+                        group_markup = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("number bot", url=NUMBER_BOT_LINK),
+                             InlineKeyboardButton("update group", url=UPDATE_GROUP_LINK)]
+                        ])
+
                         await MESSAGE_QUEUE.put({
                             'chat_id': GROUP_ID, 'text': group_msg, 
                             'parse_mode': ParseMode.HTML, 
-                            'reply_markup': InlineKeyboardMarkup([[InlineKeyboardButton("Number Bot", url=GROUP_LINK)]])
+                            'reply_markup': group_markup
                         })
                         
                         if owner and owner in USERS_CACHE:
                             USERS_CACHE[owner]['balance'] += SMS_AMOUNT
                             dirty = True
                             
+                            # STYLING UPDATE: User Message
                             user_msg = (
-                                f"📱 <b>New OTP!</b> ✨\n\n"
-                                f"📞 <b>Number:</b> <code>{phone}</code>\n\n"
-                                f"🔑 <b>Code:</b> <code>{otp}</code>\n\n"
+                                f"<b>🔔 New OTP Received!</b> ✨\n\n"
+                                f"<b>📞 Number:</b> <code>{phone}</code>\n"
+                                f"<b>🔑 Code:</b> <pre>{otp}</pre>\n"
                                 f"<b>💰 Earned: ${SMS_AMOUNT}</b>"
                             )
                             await MESSAGE_QUEUE.put({'chat_id': owner, 'text': user_msg, 'parse_mode': ParseMode.HTML})
@@ -759,8 +909,8 @@ async def sms_watcher_task(application: Application):
         await asyncio.sleep(15)
 
 async def main_bot_loop():
-    load_users_cache() # Load cache on start
-    clean_numbers_file() # Clean DB on start
+    load_users_cache() 
+    clean_numbers_file()
     
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
@@ -769,6 +919,7 @@ async def main_bot_loop():
     application.add_handler(CommandHandler("delete", delete_command))
     application.add_handler(CommandHandler("remove", delete_command))
     application.add_handler(CommandHandler("new", new_session_command))
+    application.add_handler(CommandHandler("top", top_command))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
