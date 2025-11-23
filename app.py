@@ -835,7 +835,7 @@ async def sms_watcher_task(application: Application):
         try:
             await asyncio.to_thread(manager_instance.scrape_and_save_all_sms)
             if not os.path.exists(SMS_CACHE_FILE):
-                await asyncio.sleep(15)
+                await asyncio.sleep(2)
                 continue
                 
             phone_map = {}
