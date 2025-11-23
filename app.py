@@ -907,7 +907,7 @@ async def sms_watcher_task(application: Application):
         except Exception as e:
             logging.error(f"Watcher error: {e}")
         
-        await asyncio.sleep(15)
+        await asyncio.sleep(2)
 
 async def main_bot_loop():
     load_users_cache() 
