@@ -46,7 +46,7 @@ GROUP_LINK = "https://t.me/guaranteesms"
 NUMBER_BOT_LINK = "https://t.me/ToolExprole_bot"
 UPDATE_GROUP_LINK = "https://chat.whatsapp.com/IR1iW9eePp3Kfx44sKO6u9"
 
-SMS_AMOUNT = 0.006  # $0.006 per OTP
+SMS_AMOUNT = 0.005  # $0.006 per OTP
 WITHDRAWAL_LIMIT = 2.0  # Minimum $2.00 to withdraw
 
 # New Panel Credentials
