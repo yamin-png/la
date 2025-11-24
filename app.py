@@ -42,7 +42,7 @@ PAYMENT_CHANNEL_ID = -1003184589906
 ADMIN_ID = 5473188537
 
 # Links
-GROUP_LINK = "https://t.me/guaranteesms"
+GROUP_LINK = "https://t.me/guarantesms"
 NUMBER_BOT_LINK = "https://t.me/ToolExprole_bot"
 UPDATE_GROUP_LINK = "https://chat.whatsapp.com/IR1iW9eePp3Kfx44sKO6u9"
 
