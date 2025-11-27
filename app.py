@@ -369,6 +369,63 @@ def delete_specific_numbers(number_list, filepath=NUMBERS_FILE):
             
     return removed_count
 
+# NEW: Helper function to delete numbers by country from BOTH pools
+def remove_numbers_by_country_input(country_input):
+    """
+    Removes all numbers belonging to a specific country from both 
+    numbers.txt and fresh_numbers.txt.
+    Input can be a country code (e.g., '1') or name (e.g., 'United States').
+    Returns: (total_deleted_count, matched_country_name)
+    """
+    country_input = str(country_input).strip().lower().replace('+', '')
+    
+    target_country_name = None
+    
+    # 1. Identify Target Country
+    # Check if input matches a specific country code key
+    if country_input in COUNTRY_PREFIXES:
+        target_country_name = COUNTRY_PREFIXES[country_input][0]
+    else:
+        # Check if input matches a country name value
+        for prefix, (name, flag) in COUNTRY_PREFIXES.items():
+            if country_input == name.lower() or country_input in name.lower():
+                target_country_name = name
+                break
+    
+    if not target_country_name:
+        return 0, None
+
+    total_deleted = 0
+    
+    # 2. Delete from BOTH files
+    for filepath in [NUMBERS_FILE, FRESH_NUMBERS_FILE]:
+        if not os.path.exists(filepath): continue
+        
+        with FILE_LOCK:
+            current_numbers = load_numbers_set(filepath)
+            numbers_to_keep = set()
+            file_deleted_count = 0
+            
+            for number in current_numbers:
+                detected_name, _ = detect_country_from_phone(number)
+                if detected_name != target_country_name:
+                    numbers_to_keep.add(number)
+                else:
+                    file_deleted_count += 1
+            
+            if file_deleted_count > 0:
+                # Save specifically to the current filepath iteration
+                try:
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(sorted(list(numbers_to_keep))) + "\n")
+                    logging.info(f"Bulk deleted {file_deleted_count} numbers from {filepath} for {target_country_name}")
+                except Exception as e:
+                     logging.error(f"Failed to save numbers to {filepath}: {e}")
+
+            total_deleted += file_deleted_count
+            
+    return total_deleted, target_country_name
+
 def hide_number(number):
     if len(str(number)) > 7:
         num_str = str(number)
@@ -609,10 +666,22 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['state'] = 'ADDING_NUMBER'
     await update.message.reply_text("<blockquote><b>📞 Send list of numbers (plain text). Use 'fresh' in the message to add to fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
 
+# UPDATED: Enhanced Delete Command
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
-    context.user_data['state'] = 'DELETING_NUMBER'
-    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text). Use 'fresh' in the message to remove from fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
+    
+    keyboard = [
+        [InlineKeyboardButton("📝 Delete Specific List", callback_data='delete_mode_list')],
+        [InlineKeyboardButton("🌍 Delete by Country", callback_data='delete_mode_country')],
+        [InlineKeyboardButton("❌ Cancel", callback_data='main_menu')]
+    ]
+    
+    await update.message.reply_text(
+        "<blockquote><b>🗑️ Deletion Mode</b></blockquote>\n\n"
+        "Choose how you want to delete numbers:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML
+    )
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -684,7 +753,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.to_thread(add_numbers_to_file, numbers, filepath)
             pool_name = "Fresh Pool" if filepath == FRESH_NUMBERS_FILE else "Main Pool"
             await update.message.reply_text(f"✅ Added {len(numbers)} numbers to the {pool_name}.")
-            
+    
+    # NEW: Handle Specific List Deletion
     elif state == 'DELETING_NUMBER' and user_id == str(ADMIN_ID):
         if text.lower() == 'done':
             context.user_data['state'] = None
@@ -698,6 +768,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             count = await asyncio.to_thread(delete_specific_numbers, numbers, filepath)
             pool_name = "Fresh Pool" if filepath == FRESH_NUMBERS_FILE else "Main Pool"
             await update.message.reply_text(f"✅ Deleted {count} numbers from the {pool_name}.")
+
+    # NEW: Handle Country-Based Deletion
+    elif state == 'DELETING_BY_COUNTRY' and user_id == str(ADMIN_ID):
+        if text.lower() == 'cancel':
+            context.user_data['state'] = None
+            await update.message.reply_text("❌ Cancelled.")
+            return
+
+        deleted_count, country_name = await asyncio.to_thread(remove_numbers_by_country_input, text)
+        
+        if country_name:
+            context.user_data['state'] = None
+            await update.message.reply_text(
+                f"✅ <b>Successfully deleted {deleted_count} numbers</b> for <b>{country_name}</b> from all pools.",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+             await update.message.reply_text(
+                "❌ <b>Country not found.</b>\nPlease try again with a valid country code (e.g., <code>1</code>) or name (e.g., <code>United States</code>), or type 'cancel'.",
+                parse_mode=ParseMode.HTML
+            )
 
     elif state == 'AWAITING_WITHDRAWAL_AMOUNT':
         user = USERS_CACHE.get(user_id)
@@ -808,6 +899,22 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         except:
             pass
         await start_command(update, context)
+        return
+
+    # NEW: Handle Delete Mode Selection
+    if data == 'delete_mode_list':
+        context.user_data['state'] = 'DELETING_NUMBER'
+        await query.edit_message_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text). Use 'fresh' in the message to remove from fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
+        return
+
+    if data == 'delete_mode_country':
+        context.user_data['state'] = 'DELETING_BY_COUNTRY'
+        await query.edit_message_text(
+            "<blockquote><b>🌍 Country Deletion Mode</b></blockquote>\n\n"
+            "Please send the <b>Country Code</b> (e.g., <code>1</code> for USA, <code>44</code> for UK) or the <b>Country Name</b>.\n\n"
+            "⚠️ <i>This will delete ALL numbers for that country from both regular and fresh pools.</i>",
+            parse_mode=ParseMode.HTML
+        )
         return
 
     if data == 'withdraw':
