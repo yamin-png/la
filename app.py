@@ -447,7 +447,8 @@ class NewPanelSmsManager:
     
     def get_api_url(self):
         today = datetime.now().strftime("%Y-%m-%d")
-        return f"{PANEL_BASE_URL}/agent/res/data_smscdr.php?fdate1={today}+00:00:00&fdate2={today}+23:99:99&iDisplayLength=200"
+        # FIX: Changed invalid 23:99:99 to 23:59:59 and increased iDisplayLength to 500
+        return f"{PANEL_BASE_URL}/agent/res/data_smscdr.php?fdate1={today}+00:00:00&fdate2={today}+23:59:59&iDisplayLength=500"
     
     def fetch_sms_from_api(self):
         headers = {
