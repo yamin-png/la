@@ -48,6 +48,7 @@ UPDATE_GROUP_LINK = "https://chat.whatsapp.com/IR1iW9eePp3Kfx44sKO6u9"
 
 SMS_AMOUNT = 0.005  # $0.006 per OTP
 WITHDRAWAL_LIMIT = 2.0  # Minimum $2.00 to withdraw
+NUMBER_TIMEOUT_MINUTES = 10 # New: Timeout after 10 minutes if no OTP received
 
 # New Panel Credentials
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
@@ -59,6 +60,7 @@ USERS_FILE = 'users.json'
 SMS_CACHE_FILE = 'sms.txt'
 SENT_SMS_FILE = 'sent_sms.json'
 NUMBERS_FILE = 'numbers.txt' 
+FRESH_NUMBERS_FILE = 'fresh_numbers.txt' # New: File for high-priority/recycled numbers
 
 # Global variables
 shutdown_event = asyncio.Event()
@@ -189,6 +191,22 @@ def load_users_cache():
     """Loads users into global memory cache on startup."""
     global USERS_CACHE
     USERS_CACHE = load_json_data(USERS_FILE, {})
+    # Migration: Ensure 'active_numbers' list exists
+    for uid in USERS_CACHE:
+        if 'phone_numbers' in USERS_CACHE[uid]:
+             # Migrating old phone_numbers to new active_numbers format (if simple strings)
+            if USERS_CACHE[uid]['phone_numbers'] and isinstance(USERS_CACHE[uid]['phone_numbers'][0], str):
+                USERS_CACHE[uid]['active_numbers'] = [
+                    {'number': p, 'claimed_time': 0, 'is_fresh_pool': False} 
+                    for p in USERS_CACHE[uid]['phone_numbers']
+                ]
+            else:
+                 # Assume already in new format or empty
+                USERS_CACHE[uid]['active_numbers'] = USERS_CACHE[uid]['phone_numbers']
+            del USERS_CACHE[uid]['phone_numbers']
+        elif 'active_numbers' not in USERS_CACHE[uid]:
+            USERS_CACHE[uid]['active_numbers'] = []
+            
     logging.info(f"Loaded {len(USERS_CACHE)} users into memory.")
 
 def background_save_users():
@@ -206,66 +224,110 @@ def save_sent_sms_keys(keys):
 
 def clean_numbers_file():
     """Cleans empty lines from numbers.txt on startup."""
-    if not os.path.exists(NUMBERS_FILE): return
-    with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-        lines = [line.strip() for line in f if line.strip()]
-    with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines) + '\n')
+    for filepath in [NUMBERS_FILE, FRESH_NUMBERS_FILE]:
+        if not os.path.exists(filepath): continue
+        with FILE_LOCK:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                lines = [line.strip() for line in f if line.strip()]
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines) + '\n')
 
-# --- Number Logic ---
+# --- New Number Logic Helpers ---
 
-def get_number_from_file_for_country(country_name):
-    """Gets a RANDOM number for specific country from numbers.txt file, then deletes it."""
-    if not os.path.exists(NUMBERS_FILE):
-        return None
+# General helper to safely read numbers from a file into a set
+def load_numbers_set(filepath):
+    if not os.path.exists(filepath):
+        return set()
+    with FILE_LOCK:
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return set(line.strip() for line in f if line.strip())
+        except:
+            return set()
+
+# General helper to safely write numbers from a set to a file
+def save_numbers_set(filepath, numbers_set):
+    with FILE_LOCK:
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                # Write sorted for easier manual inspection
+                f.write('\n'.join(sorted(list(numbers_set))) + "\n")
+        except Exception as e:
+            logging.error(f"Failed to save numbers to {filepath}: {e}")
+            
+def get_number_from_pools(country_name):
+    """Checks fresh.txt first, then numbers.txt. Deletes number from source pool upon retrieval."""
     
     target_country = str(country_name).strip().lower()
     
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        matching_indices = []
-        for i, line in enumerate(lines):
-            number = line.strip()
-            if not number: continue
+    # 1. Check FRESH pool first
+    fresh_numbers = load_numbers_set(FRESH_NUMBERS_FILE)
+    fresh_match = None
+    
+    for number in fresh_numbers:
+        detected_name, _ = detect_country_from_phone(number)
+        if detected_name.lower() == target_country:
+            fresh_match = number
+            break
             
-            detected_name, _ = detect_country_from_phone(number)
-            if detected_name.lower() == target_country:
-                matching_indices.append(i)
-        
-        if matching_indices:
-            chosen_index = random.choice(matching_indices)
-            number = lines[chosen_index].strip()
+    if fresh_match:
+        fresh_numbers.remove(fresh_match)
+        save_numbers_set(FRESH_NUMBERS_FILE, fresh_numbers)
+        return fresh_match, True # Number, Is_Fresh
+    
+    # 2. Check REGULAR pool
+    regular_numbers = load_numbers_set(NUMBERS_FILE)
+    regular_match = None
+    
+    for number in regular_numbers:
+        detected_name, _ = detect_country_from_phone(number)
+        if detected_name.lower() == target_country:
+            regular_match = number
+            break
             
-            # Remove from file
-            lines.pop(chosen_index)
-            with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-                f.writelines(lines)
-                
-            return number
+    if regular_match:
+        regular_numbers.remove(regular_match)
+        save_numbers_set(NUMBERS_FILE, regular_numbers)
+        return regular_match, False # Number, Is_Fresh
+            
+    return None, False
 
-    return None
+def remove_number_from_pools(number):
+    """Removes a number from either numbers.txt or fresh_numbers.txt permanently (on successful OTP)."""
+    number = str(number).strip()
+    
+    # Check fresh pool
+    fresh_numbers = load_numbers_set(FRESH_NUMBERS_FILE)
+    if number in fresh_numbers:
+        fresh_numbers.remove(number)
+        save_numbers_set(FRESH_NUMBERS_FILE, fresh_numbers)
+        logging.info(f"Successfully removed used number {number} from fresh pool.")
+        return
+        
+    # Check regular pool
+    regular_numbers = load_numbers_set(NUMBERS_FILE)
+    if number in regular_numbers:
+        regular_numbers.remove(number)
+        save_numbers_set(NUMBERS_FILE, regular_numbers)
+        logging.info(f"Successfully removed used number {number} from regular pool.")
+        return
+        
+    logging.warning(f"Could not find number {number} in any pool for permanent deletion.")
+
 
 def get_available_countries_and_counts():
-    """Returns list of (Flag, CountryName, Count) tuples."""
-    if not os.path.exists(NUMBERS_FILE):
-        return []
+    """Returns list of (Flag, CountryName, Count) tuples from both pools."""
     
+    all_numbers = load_numbers_set(NUMBERS_FILE) | load_numbers_set(FRESH_NUMBERS_FILE)
     counts = {} 
     
-    # Use lock to prevent reading while writing
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                number = line.strip()
-                if not number: continue
-                
-                name, flag = detect_country_from_phone(number)
-                if name != "Unknown":
-                    if name not in counts:
-                        counts[name] = {'flag': flag, 'count': 0}
-                    counts[name]['count'] += 1
+    for number in all_numbers:
+        if not number: continue
+        name, flag = detect_country_from_phone(number)
+        if name != "Unknown":
+            if name not in counts:
+                counts[name] = {'flag': flag, 'count': 0}
+            counts[name]['count'] += 1
     
     result = []
     for name, data in counts.items():
@@ -273,38 +335,37 @@ def get_available_countries_and_counts():
     
     return sorted(result, key=lambda x: x[1]) 
 
-def add_numbers_to_file(number_list):
-    """Adds a list of numbers to numbers.txt file."""
+def add_numbers_to_file(number_list, filepath=NUMBERS_FILE):
+    """Adds a list of numbers to a specified file."""
     if not number_list: return
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'a', encoding='utf-8') as f:
-            for num in number_list:
-                clean_num = num.strip()
-                if clean_num.isdigit() and len(clean_num) > 5:
-                    f.write(clean_num + "\n")
-                    logging.info(f"Added number: {clean_num}")
+    current_numbers = load_numbers_set(filepath)
+    added_count = 0
+    
+    for num in number_list:
+        clean_num = num.strip()
+        if clean_num.isdigit() and len(clean_num) > 5 and clean_num not in current_numbers:
+            current_numbers.add(clean_num)
+            added_count += 1
+            logging.info(f"Added number to {filepath}: {clean_num}")
+            
+    if added_count > 0:
+        save_numbers_set(filepath, current_numbers)
 
-def delete_specific_numbers(number_list):
-    """Removes specific numbers from the file."""
-    if not os.path.exists(NUMBERS_FILE): return 0
+def delete_specific_numbers(number_list, filepath=NUMBERS_FILE):
+    """Removes specific numbers from a specified file."""
+    current_numbers = load_numbers_set(filepath)
     target_numbers = set(n.strip() for n in number_list)
     removed_count = 0
     
-    with FILE_LOCK:
-        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        remaining_lines = []
-        for line in lines:
-            num = line.strip()
-            if num in target_numbers:
-                removed_count += 1
-                logging.info(f"Removed number: {num}")
-            else:
-                remaining_lines.append(line)
-        
-        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
-            f.writelines(remaining_lines)
+    
+    for num in target_numbers:
+        if num in current_numbers:
+            current_numbers.remove(num)
+            removed_count += 1
+            logging.info(f"Removed number from {filepath}: {num}")
+            
+    if removed_count > 0:
+        save_numbers_set(filepath, current_numbers)
             
     return removed_count
 
@@ -386,7 +447,7 @@ class NewPanelSmsManager:
     
     def get_api_url(self):
         today = datetime.now().strftime("%Y-%m-%d")
-        return f"{PANEL_BASE_URL}/agent/res/data_smscdr.php?fdate1={today}+00:00:00&fdate2={today}+23:59:59&iDisplayLength=200"
+        return f"{PANEL_BASE_URL}/agent/res/data_smscdr.php?fdate1={today}+00:00:00&fdate2={today}+23:99:99&iDisplayLength=200"
     
     def fetch_sms_from_api(self):
         headers = {
@@ -401,7 +462,7 @@ class NewPanelSmsManager:
             
             if resp.text.strip().startswith("<"):
                 logging.warning("Session Expired: API returned HTML instead of JSON.")
-                _send_critical_admin_alert("⚠️ Session Expired! Please update PHPSESSID.")
+                # Removed critical alert to avoid spamming admin repeatedly
                 return []
 
             resp.raise_for_status()
@@ -525,27 +586,32 @@ async def sms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("<blockquote>❌ An error occurred. Restart /start</blockquote>", parse_mode=ParseMode.HTML)
         return
     
-    phones = user_data.get('phone_numbers', [])
-    if not phones:
+    active_numbers = user_data.get('active_numbers', [])
+    if not active_numbers:
         await update.message.reply_text("<blockquote><b>❌ You haven't taken any numbers yet.</b></blockquote>", parse_mode=ParseMode.HTML)
         return
     
-    sms_text = f"<blockquote><b>📊 Your numbers: {len(phones)}</b></blockquote>\n\n"
-    for i, number in enumerate(phones[:5], 1):
+    sms_text = f"<blockquote><b>📊 Your active numbers: {len(active_numbers)}</b></blockquote>\n\n"
+    for i, num_data in enumerate(active_numbers[:3], 1): # Show up to 3 active numbers
+        number = num_data['number']
+        is_fresh = num_data['is_fresh_pool']
         name, flag = detect_country_from_phone(number)
-        sms_text += f"<blockquote><b>{i}. {flag} {name}</b></blockquote>\n\n<blockquote>📱 <code>{hide_number(number)}</code></blockquote>\n\n"
+        
+        fresh_note = " (Fresh)" if is_fresh else ""
+        
+        sms_text += f"<blockquote><b>{i}. {flag} {name}{fresh_note}</b></blockquote>\n\n<blockquote>📱 <code>{hide_number(number)}</code></blockquote>\n\n"
     
     await update.message.reply_text(sms_text, parse_mode=ParseMode.HTML)
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
     context.user_data['state'] = 'ADDING_NUMBER'
-    await update.message.reply_text("<blockquote><b>📞 Send list of numbers (plain text):</b></blockquote>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("<blockquote><b>📞 Send list of numbers (plain text). Use 'fresh' in the message to add to fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
     context.user_data['state'] = 'DELETING_NUMBER'
-    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text):</b></blockquote>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text). Use 'fresh' in the message to remove from fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -584,8 +650,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in USERS_CACHE:
         USERS_CACHE[user_id] = {
             "username": user.username, "first_name": user.first_name,
-            "phone_numbers": [], "balance": 0.0, "last_number_time": 0, "active_msg_ids": []
+            "active_numbers": [], "balance": 0.0, "last_number_time": 0, "active_msg_ids": []
         }
+        asyncio.to_thread(background_save_users)
+    elif 'active_numbers' not in USERS_CACHE[user_id]:
+        # Handle case where user cache exists but needs the new key
+        USERS_CACHE[user_id]['active_numbers'] = []
         asyncio.to_thread(background_save_users)
     
     keyboard = [[KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]]
@@ -606,10 +676,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Done.")
             return
         
+        filepath = FRESH_NUMBERS_FILE if 'fresh' in text.lower() else NUMBERS_FILE
         numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
+        
         if numbers:
-            await asyncio.to_thread(add_numbers_to_file, numbers)
-            await update.message.reply_text(f"✅ Added {len(numbers)} numbers.")
+            await asyncio.to_thread(add_numbers_to_file, numbers, filepath)
+            pool_name = "Fresh Pool" if filepath == FRESH_NUMBERS_FILE else "Main Pool"
+            await update.message.reply_text(f"✅ Added {len(numbers)} numbers to the {pool_name}.")
             
     elif state == 'DELETING_NUMBER' and user_id == str(ADMIN_ID):
         if text.lower() == 'done':
@@ -617,10 +690,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Done.")
             return
         
+        filepath = FRESH_NUMBERS_FILE if 'fresh' in text.lower() else NUMBERS_FILE
         numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
+        
         if numbers:
-            count = await asyncio.to_thread(delete_specific_numbers, numbers)
-            await update.message.reply_text(f"✅ Deleted {count} numbers.")
+            count = await asyncio.to_thread(delete_specific_numbers, numbers, filepath)
+            pool_name = "Fresh Pool" if filepath == FRESH_NUMBERS_FILE else "Main Pool"
+            await update.message.reply_text(f"✅ Deleted {count} numbers from the {pool_name}.")
 
     elif state == 'AWAITING_WITHDRAWAL_AMOUNT':
         user = USERS_CACHE.get(user_id)
@@ -763,18 +839,29 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("⚠️ Wait 5 seconds", show_alert=True)
             return
 
-        number = await asyncio.to_thread(get_number_from_file_for_country, country)
+        number, is_fresh_pool = await asyncio.to_thread(get_number_from_pools, country)
         
         if number:
-            user['phone_numbers'].append(number)
+            # Store full data object, not just the number string
+            num_data = {
+                'number': number,
+                'claimed_time': time.time(),
+                'is_fresh_pool': is_fresh_pool
+            }
+            
+            # Use 'active_numbers' for the new structure
+            if 'active_numbers' not in user: user['active_numbers'] = []
+            user['active_numbers'].append(num_data)
             user['last_number_time'] = time.time()
-            user['phone_numbers'] = user['phone_numbers'][-3:]
+            user['active_numbers'] = user['active_numbers'][-3:] # Limit to last 3 active numbers
             USERS_CACHE[user_id] = user
             await asyncio.to_thread(background_save_users)
             
             name, flag = detect_country_from_phone(number)
+            fresh_note = " (Fresh)" if is_fresh_pool else ""
+            
             msg = (
-                f"<b>🎉 Number Acquired!</b>\n\n"
+                f"<b>🎉 Number Acquired!{fresh_note}</b>\n\n"
                 f"<b>🌍 Country:</b> {flag} <i>{name}</i>\n\n"
                 f"<b>📞 Number:</b> <code>{number}</code>\n\n"
                 f"<i>⏳ Waiting for SMS...</i>"
@@ -807,8 +894,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             
     elif data.startswith('country_') and user_id == str(ADMIN_ID):
         country = data.replace('country_', '')
-        count = await asyncio.to_thread(remove_numbers_for_country, country)
-        await context.bot.send_message(chat_id=user_id, text=f"✅ Removed {count} numbers for {country}")
+        # This function is no longer defined. Admin removal should be done via /delete command.
+        await context.bot.send_message(chat_id=user_id, text=f"❌ Please use the /delete command to remove numbers.")
 
     elif data.startswith('admin_approve_') or data.startswith('admin_decline_'):
         if str(user_id) != str(ADMIN_ID): return
@@ -826,6 +913,63 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await context.bot.send_message(chat_id=target_id, text=f"❌ Withdrawal of ${amount:.3f} Declined (Refunded).")
             await query.edit_message_text(f"{query.message.text}\n\n❌ DECLINED", parse_mode=ParseMode.HTML)
 
+async def background_number_cleanup_task(application: Application):
+    """
+    Checks active user numbers. If a number has timed out (no OTP received yet), 
+    it is removed from the user's active list and recycled to the fresh_numbers.txt pool 
+    (unless it originated from the fresh pool).
+    """
+    while not shutdown_event.is_set():
+        try:
+            now = time.time()
+            timeout_seconds = NUMBER_TIMEOUT_MINUTES * 60
+            
+            users_to_save = False
+            numbers_to_return = set()
+            
+            for uid, user in USERS_CACHE.items():
+                
+                active_numbers_copy = user.get('active_numbers', [])[:] 
+                new_active_numbers = []
+                
+                for num_data in active_numbers_copy:
+                    number = num_data.get('number')
+                    claimed_time = num_data.get('claimed_time', 0)
+                    is_fresh_pool = num_data.get('is_fresh_pool', False)
+                    
+                    if not number or now - claimed_time < timeout_seconds:
+                        # Number is still within the timeout period
+                        new_active_numbers.append(num_data)
+                    else:
+                        # Timeout reached and no SMS received
+                        
+                        # Only return to the fresh pool if it was NOT originally a fresh number
+                        if not is_fresh_pool: 
+                            numbers_to_return.add(number)
+                            logging.info(f"Number {number} for user {uid} timed out and moved to fresh.txt.")
+                        else:
+                            logging.info(f"Fresh number {number} for user {uid} timed out and disposed.")
+                            
+                        users_to_save = True # Indicate that the user's list has changed
+                        
+                user['active_numbers'] = new_active_numbers
+                
+            # Perform file writes outside the user loop
+            if numbers_to_return:
+                current_fresh = load_numbers_set(FRESH_NUMBERS_FILE)
+                # Add only new unique numbers
+                current_fresh.update(numbers_to_return - current_fresh)
+                await asyncio.to_thread(save_numbers_set, FRESH_NUMBERS_FILE, current_fresh)
+                
+            if users_to_save:
+                asyncio.to_thread(background_save_users)
+                
+        except Exception as e:
+            logging.error(f"Cleanup task error: {e}")
+
+        await asyncio.sleep(60) # Run cleanup every minute
+
+
 async def sms_watcher_task(application: Application):
     global manager_instance
     manager_instance = NewPanelSmsManager()
@@ -838,10 +982,11 @@ async def sms_watcher_task(application: Application):
                 await asyncio.sleep(15)
                 continue
                 
+            # New: Build phone map from active_numbers (complex object)
             phone_map = {}
             for uid, udata in USERS_CACHE.items():
-                for p in udata.get('phone_numbers', []):
-                    phone_map[p] = uid
+                for num_data in udata.get('active_numbers', []):
+                    phone_map[num_data['number']] = uid
             
             dirty = False
             
@@ -883,8 +1028,18 @@ async def sms_watcher_task(application: Application):
                         })
                         
                         if owner and owner in USERS_CACHE:
-                            USERS_CACHE[owner]['balance'] += SMS_AMOUNT
+                            user = USERS_CACHE[owner]
+                            user['balance'] += SMS_AMOUNT
                             dirty = True
+                            
+                            # NEW: Remove number from user's active list on successful SMS
+                            user['active_numbers'] = [
+                                num_data for num_data in user['active_numbers'] 
+                                if num_data['number'] != phone
+                            ]
+                            
+                            # NEW: Remove number permanently from all pools
+                            asyncio.to_thread(remove_number_from_pools, phone)
                             
                             # STYLING UPDATE: User Message
                             user_msg = (
@@ -899,7 +1054,8 @@ async def sms_watcher_task(application: Application):
 
                         sent_keys.add(key)
                         
-                    except: pass
+                    except Exception as e: 
+                        logging.error(f"Error processing SMS: {e}")
             
             if dirty: await asyncio.to_thread(background_save_users)
             save_sent_sms_keys(sent_keys)
@@ -930,6 +1086,7 @@ async def main_bot_loop():
     
     asyncio.create_task(sms_watcher_task(application))
     asyncio.create_task(rate_limited_sender_task(application))
+    asyncio.create_task(background_number_cleanup_task(application)) # New cleanup task
     
     await shutdown_event.wait()
     await application.stop()
