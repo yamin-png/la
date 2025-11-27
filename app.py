@@ -67,7 +67,7 @@ shutdown_event = asyncio.Event()
 manager_instance = None
 MESSAGE_QUEUE = asyncio.Queue()
 LAST_SESSION_FAILURE_NOTIFICATION = 0
-FILE_LOCK = threading.Lock() # Thread-safe lock for file operations
+FILE_LOCK = threading.RLock() # Thread-safe reentrant lock for file operations (Changed to RLock)
 
 # In-Memory Caches for Speed
 USERS_CACHE = {} 
@@ -386,11 +386,18 @@ def remove_numbers_by_country_input(country_input):
     if country_input in COUNTRY_PREFIXES:
         target_country_name = COUNTRY_PREFIXES[country_input][0]
     else:
-        # Check if input matches a country name value
+        # Check if input matches a country name value (Exact match first)
         for prefix, (name, flag) in COUNTRY_PREFIXES.items():
-            if country_input == name.lower() or country_input in name.lower():
+            if country_input == name.lower():
                 target_country_name = name
                 break
+        
+        # Fallback to partial match if no exact match found
+        if not target_country_name:
+            for prefix, (name, flag) in COUNTRY_PREFIXES.items():
+                if country_input in name.lower():
+                    target_country_name = name
+                    break
     
     if not target_country_name:
         return 0, None
@@ -401,6 +408,7 @@ def remove_numbers_by_country_input(country_input):
     for filepath in [NUMBERS_FILE, FRESH_NUMBERS_FILE]:
         if not os.path.exists(filepath): continue
         
+        # Uses RLock to allow nested locking from load_numbers_set
         with FILE_LOCK:
             current_numbers = load_numbers_set(filepath)
             numbers_to_keep = set()
@@ -414,7 +422,6 @@ def remove_numbers_by_country_input(country_input):
                     file_deleted_count += 1
             
             if file_deleted_count > 0:
-                # Save specifically to the current filepath iteration
                 try:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write('\n'.join(sorted(list(numbers_to_keep))) + "\n")
