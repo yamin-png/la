@@ -652,11 +652,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "username": user.username, "first_name": user.first_name,
             "active_numbers": [], "balance": 0.0, "last_number_time": 0, "active_msg_ids": []
         }
-        asyncio.to_thread(background_save_users)
+        await asyncio.to_thread(background_save_users)
     elif 'active_numbers' not in USERS_CACHE[user_id]:
         # Handle case where user cache exists but needs the new key
         USERS_CACHE[user_id]['active_numbers'] = []
-        asyncio.to_thread(background_save_users)
+        await asyncio.to_thread(background_save_users)
     
     keyboard = [[KeyboardButton("🎁 Get Number"), KeyboardButton("👤 Account")]]
     welcome_text = (
@@ -885,7 +885,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                         pass
                 
                 USERS_CACHE[user_id] = user
-                asyncio.to_thread(background_save_users)
+                await asyncio.to_thread(background_save_users)
                 
             except:
                 pass
@@ -962,7 +962,7 @@ async def background_number_cleanup_task(application: Application):
                 await asyncio.to_thread(save_numbers_set, FRESH_NUMBERS_FILE, current_fresh)
                 
             if users_to_save:
-                asyncio.to_thread(background_save_users)
+                await asyncio.to_thread(background_save_users)
                 
         except Exception as e:
             logging.error(f"Cleanup task error: {e}")
