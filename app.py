@@ -46,9 +46,11 @@ GROUP_LINK = "https://t.me/guarantesms"
 NUMBER_BOT_LINK = "https://t.me/ToolExprole_bot"
 UPDATE_GROUP_LINK = "https://chat.whatsapp.com/IR1iW9eePp3Kfx44sKO6u9"
 
-SMS_AMOUNT = 0.005  # $0.006 per OTP
+# Economics
+SMS_AMOUNT = 0.005  # $0.005 per OTP
 WITHDRAWAL_LIMIT = 2.0  # Minimum $2.00 to withdraw
-NUMBER_TIMEOUT_MINUTES = 10 # New: Timeout after 10 minutes if no OTP received
+BDT_RATE = 125 # 1 USD = 125 BDT
+NUMBER_TIMEOUT_MINUTES = 10 # Timeout after 10 minutes if no OTP received
 
 # New Panel Credentials
 PANEL_BASE_URL = "http://51.89.99.105/NumberPanel"
@@ -60,7 +62,6 @@ USERS_FILE = 'users.json'
 SMS_CACHE_FILE = 'sms.txt'
 SENT_SMS_FILE = 'sent_sms.json'
 NUMBERS_FILE = 'numbers.txt' 
-FRESH_NUMBERS_FILE = 'fresh_numbers.txt' # New: File for high-priority/recycled numbers
 
 # Global variables
 shutdown_event = asyncio.Event()
@@ -118,7 +119,7 @@ COUNTRY_PREFIXES = {
     "255": ("Tanzania", "🇹🇿"), "256": ("Uganda", "🇺🇬"), "257": ("Burundi", "🇧🇮"), "258": ("Mozambique", "🇲🇿"),
     "260": ("Zambia", "🇿🇲"), "261": ("Madagascar", "🇲🇬"), "262": ("Reunion", "🇷🇪"), "263": ("Zimbabwe", "🇿🇼"),
     "264": ("Namibia", "🇳🇦"), "265": ("Malawi", "🇲🇼"), "266": ("Lesotho", "🇱🇸"), "267": ("Botswana", "🇧🇼"),
-    "268": ("Eswatini", "🇸🇿"), "269": ("Comoros", "🇰🇲"), "290": ("Saint Helena", "🇸🇭"), "291": ("Eritrea", "🇪🇷"),
+    "268": ("Eswatini", "🇸🇿"), "269": ("Comoros", "🇰🇲"), "290": ("Saint Helena", "🇸🇭"), "291": ("Eritrea", "🇪🇹"),
     "297": ("Aruba", "🇦🇼"), "298": ("Faroe Islands", "🇫🇴"), "299": ("Greenland", "🇬🇱"), "350": ("Gibraltar", "🇬🇮"),
     "351": ("Portugal", "🇵🇹"), "352": ("Luxembourg", "🇱🇺"), "353": ("Ireland", "🇮🇪"), "354": ("Iceland", "🇮🇸"),
     "355": ("Albania", "🇦🇱"), "356": ("Malta", "🇲🇹"), "357": ("Cyprus", "🇨🇾"), "358": ("Finland", "🇫🇮"),
@@ -160,10 +161,9 @@ def detect_country_from_phone(phone):
     
     # Try different prefix lengths (longest first)
     for length in [4, 3, 2, 1]:
-        if len(phone_str) >= length:
-            prefix = phone_str[:length]
-            if prefix in COUNTRY_PREFIXES:
-                return COUNTRY_PREFIXES[prefix]
+        prefix = phone_str[:length]
+        if prefix in COUNTRY_PREFIXES:
+            return COUNTRY_PREFIXES[prefix]
     
     return "Unknown", "🌍"
 
@@ -194,10 +194,10 @@ def load_users_cache():
     # Migration: Ensure 'active_numbers' list exists
     for uid in USERS_CACHE:
         if 'phone_numbers' in USERS_CACHE[uid]:
-             # Migrating old phone_numbers to new active_numbers format (if simple strings)
+            # Migrating old phone_numbers to new active_numbers format
             if USERS_CACHE[uid]['phone_numbers'] and isinstance(USERS_CACHE[uid]['phone_numbers'][0], str):
                 USERS_CACHE[uid]['active_numbers'] = [
-                    {'number': p, 'claimed_time': 0, 'is_fresh_pool': False} 
+                    {'number': p, 'claimed_time': 0} 
                     for p in USERS_CACHE[uid]['phone_numbers']
                 ]
             else:
@@ -224,17 +224,15 @@ def save_sent_sms_keys(keys):
 
 def clean_numbers_file():
     """Cleans empty lines from numbers.txt on startup."""
-    for filepath in [NUMBERS_FILE, FRESH_NUMBERS_FILE]:
-        if not os.path.exists(filepath): continue
-        with FILE_LOCK:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                lines = [line.strip() for line in f if line.strip()]
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(lines) + '\n')
+    if not os.path.exists(NUMBERS_FILE): return
+    with FILE_LOCK:
+        with open(NUMBERS_FILE, 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f if line.strip()]
+        with open(NUMBERS_FILE, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
 
-# --- New Number Logic Helpers ---
+# --- Number Logic Helpers ---
 
-# General helper to safely read numbers from a file into a set
 def load_numbers_set(filepath):
     if not os.path.exists(filepath):
         return set()
@@ -245,80 +243,53 @@ def load_numbers_set(filepath):
         except:
             return set()
 
-# General helper to safely write numbers from a set to a file
 def save_numbers_set(filepath, numbers_set):
     with FILE_LOCK:
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
-                # Write sorted for easier manual inspection
                 f.write('\n'.join(sorted(list(numbers_set))) + "\n")
         except Exception as e:
             logging.error(f"Failed to save numbers to {filepath}: {e}")
             
-def get_number_from_pools(country_name):
-    """Checks fresh.txt first, then numbers.txt. Deletes number from source pool upon retrieval."""
+def get_number_from_pool(country_name):
+    """Checks numbers.txt only. Deletes number from pool upon retrieval."""
     
     target_country = str(country_name).strip().lower()
     
-    # 1. Check FRESH pool first
-    fresh_numbers = load_numbers_set(FRESH_NUMBERS_FILE)
-    fresh_match = None
-    
-    for number in fresh_numbers:
-        detected_name, _ = detect_country_from_phone(number)
-        if detected_name.lower() == target_country:
-            fresh_match = number
-            break
-            
-    if fresh_match:
-        fresh_numbers.remove(fresh_match)
-        save_numbers_set(FRESH_NUMBERS_FILE, fresh_numbers)
-        return fresh_match, True # Number, Is_Fresh
-    
-    # 2. Check REGULAR pool
     regular_numbers = load_numbers_set(NUMBERS_FILE)
-    regular_match = None
+    match = None
     
     for number in regular_numbers:
         detected_name, _ = detect_country_from_phone(number)
         if detected_name.lower() == target_country:
-            regular_match = number
+            match = number
             break
             
-    if regular_match:
-        regular_numbers.remove(regular_match)
+    if match:
+        regular_numbers.remove(match)
         save_numbers_set(NUMBERS_FILE, regular_numbers)
-        return regular_match, False # Number, Is_Fresh
+        return match
             
-    return None, False
+    return None
 
-def remove_number_from_pools(number):
-    """Removes a number from either numbers.txt or fresh_numbers.txt permanently (on successful OTP)."""
+def remove_number_from_pool(number):
+    """Removes a number from numbers.txt permanently (on successful OTP)."""
     number = str(number).strip()
     
-    # Check fresh pool
-    fresh_numbers = load_numbers_set(FRESH_NUMBERS_FILE)
-    if number in fresh_numbers:
-        fresh_numbers.remove(number)
-        save_numbers_set(FRESH_NUMBERS_FILE, fresh_numbers)
-        logging.info(f"Successfully removed used number {number} from fresh pool.")
-        return
-        
-    # Check regular pool
     regular_numbers = load_numbers_set(NUMBERS_FILE)
     if number in regular_numbers:
         regular_numbers.remove(number)
         save_numbers_set(NUMBERS_FILE, regular_numbers)
-        logging.info(f"Successfully removed used number {number} from regular pool.")
+        logging.info(f"Successfully removed used number {number} from pool.")
         return
         
-    logging.warning(f"Could not find number {number} in any pool for permanent deletion.")
+    logging.warning(f"Could not find number {number} in pool for permanent deletion.")
 
 
 def get_available_countries_and_counts():
-    """Returns list of (Flag, CountryName, Count) tuples from both pools."""
+    """Returns list of (Flag, CountryName, Count) tuples."""
     
-    all_numbers = load_numbers_set(NUMBERS_FILE) | load_numbers_set(FRESH_NUMBERS_FILE)
+    all_numbers = load_numbers_set(NUMBERS_FILE)
     counts = {} 
     
     for number in all_numbers:
@@ -335,10 +306,10 @@ def get_available_countries_and_counts():
     
     return sorted(result, key=lambda x: x[1]) 
 
-def add_numbers_to_file(number_list, filepath=NUMBERS_FILE):
-    """Adds a list of numbers to a specified file."""
+def add_numbers_to_file(number_list):
+    """Adds a list of numbers to numbers.txt."""
     if not number_list: return
-    current_numbers = load_numbers_set(filepath)
+    current_numbers = load_numbers_set(NUMBERS_FILE)
     added_count = 0
     
     for num in number_list:
@@ -346,26 +317,25 @@ def add_numbers_to_file(number_list, filepath=NUMBERS_FILE):
         if clean_num.isdigit() and len(clean_num) > 5 and clean_num not in current_numbers:
             current_numbers.add(clean_num)
             added_count += 1
-            logging.info(f"Added number to {filepath}: {clean_num}")
+            logging.info(f"Added number to file: {clean_num}")
             
     if added_count > 0:
-        save_numbers_set(filepath, current_numbers)
+        save_numbers_set(NUMBERS_FILE, current_numbers)
 
-def delete_specific_numbers(number_list, filepath=NUMBERS_FILE):
-    """Removes specific numbers from a specified file."""
-    current_numbers = load_numbers_set(filepath)
+def delete_specific_numbers(number_list):
+    """Removes specific numbers from numbers.txt."""
+    current_numbers = load_numbers_set(NUMBERS_FILE)
     target_numbers = set(n.strip() for n in number_list)
     removed_count = 0
-    
     
     for num in target_numbers:
         if num in current_numbers:
             current_numbers.remove(num)
             removed_count += 1
-            logging.info(f"Removed number from {filepath}: {num}")
+            logging.info(f"Removed number: {num}")
             
     if removed_count > 0:
-        save_numbers_set(filepath, current_numbers)
+        save_numbers_set(NUMBERS_FILE, current_numbers)
             
     return removed_count
 
@@ -404,8 +374,8 @@ def extract_otp_from_text(text):
     patterns = [
         r'Instagram.*?code\s*(\d{3}\s+\d{3})',  
         r'Instagram.*?(\d{3}\s+\d{3})',         
-        r'#\s*(\d{3}\s+\d{3})',                
-        r'(\d{3}\s+\d{3})',                    
+        r'#\s*(\d{3}\s+\d{3})',                 
+        r'(\d{3}\s+\d{3})',                     
         r'WhatsApp.*?code\s*(\d{3}-\d{3})',  
         r'WhatsApp.*?(\d{3}-\d{3})',        
         r'code\s*(\d{3}-\d{3})',            
@@ -416,7 +386,7 @@ def extract_otp_from_text(text):
         r'verification code[:\s]*(\d+)', 
         r'OTP is\s*(\d+)', 
         r'pin[:\s]*(\d+)',
-        r'#\s*(\d{8})\b',                    
+        r'#\s*(\d{8})\b',                     
         r'\b(\d{8})\b'                      
     ]
     for pattern in patterns:
@@ -447,7 +417,6 @@ class NewPanelSmsManager:
     
     def get_api_url(self):
         today = datetime.now().strftime("%Y-%m-%d")
-        # FIX: Changed invalid 23:99:99 to 23:59:59 and increased iDisplayLength to 500
         return f"{PANEL_BASE_URL}/agent/res/data_smscdr.php?fdate1={today}+00:00:00&fdate2={today}+23:59:59&iDisplayLength=500"
     
     def fetch_sms_from_api(self):
@@ -463,7 +432,6 @@ class NewPanelSmsManager:
             
             if resp.text.strip().startswith("<"):
                 logging.warning("Session Expired: API returned HTML instead of JSON.")
-                # Removed critical alert to avoid spamming admin repeatedly
                 return []
 
             resp.raise_for_status()
@@ -580,39 +548,15 @@ def get_main_menu_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-async def sms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    user_data = USERS_CACHE.get(user_id)
-    if not user_data:
-        await update.message.reply_text("<blockquote>❌ An error occurred. Restart /start</blockquote>", parse_mode=ParseMode.HTML)
-        return
-    
-    active_numbers = user_data.get('active_numbers', [])
-    if not active_numbers:
-        await update.message.reply_text("<blockquote><b>❌ You haven't taken any numbers yet.</b></blockquote>", parse_mode=ParseMode.HTML)
-        return
-    
-    sms_text = f"<blockquote><b>📊 Your active numbers: {len(active_numbers)}</b></blockquote>\n\n"
-    for i, num_data in enumerate(active_numbers[:3], 1): # Show up to 3 active numbers
-        number = num_data['number']
-        is_fresh = num_data['is_fresh_pool']
-        name, flag = detect_country_from_phone(number)
-        
-        fresh_note = " (Fresh)" if is_fresh else ""
-        
-        sms_text += f"<blockquote><b>{i}. {flag} {name}{fresh_note}</b></blockquote>\n\n<blockquote>📱 <code>{hide_number(number)}</code></blockquote>\n\n"
-    
-    await update.message.reply_text(sms_text, parse_mode=ParseMode.HTML)
-
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
     context.user_data['state'] = 'ADDING_NUMBER'
-    await update.message.reply_text("<blockquote><b>📞 Send list of numbers (plain text). Use 'fresh' in the message to add to fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("<blockquote><b>📞 Send list of numbers (plain text) to add to the main pool:</b></blockquote>", parse_mode=ParseMode.HTML)
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
     context.user_data['state'] = 'DELETING_NUMBER'
-    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text). Use 'fresh' in the message to remove from fresh_numbers.txt:</b></blockquote>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text):</b></blockquote>", parse_mode=ParseMode.HTML)
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -637,12 +581,6 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"💰 Total System Balance: ${total_balance:.3f}"
         
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-
-async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global PHPSESSID
-    if str(update.effective_user.id) != str(ADMIN_ID) or not context.args: return
-    PHPSESSID = context.args[0]
-    await update.message.reply_text("✅ Session Updated")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -677,13 +615,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Done.")
             return
         
-        filepath = FRESH_NUMBERS_FILE if 'fresh' in text.lower() else NUMBERS_FILE
         numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
         
         if numbers:
-            await asyncio.to_thread(add_numbers_to_file, numbers, filepath)
-            pool_name = "Fresh Pool" if filepath == FRESH_NUMBERS_FILE else "Main Pool"
-            await update.message.reply_text(f"✅ Added {len(numbers)} numbers to the {pool_name}.")
+            await asyncio.to_thread(add_numbers_to_file, numbers)
+            await update.message.reply_text(f"✅ Added {len(numbers)} numbers to the Main Pool.")
             
     elif state == 'DELETING_NUMBER' and user_id == str(ADMIN_ID):
         if text.lower() == 'done':
@@ -691,13 +627,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Done.")
             return
         
-        filepath = FRESH_NUMBERS_FILE if 'fresh' in text.lower() else NUMBERS_FILE
         numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
         
         if numbers:
-            count = await asyncio.to_thread(delete_specific_numbers, numbers, filepath)
-            pool_name = "Fresh Pool" if filepath == FRESH_NUMBERS_FILE else "Main Pool"
-            await update.message.reply_text(f"✅ Deleted {count} numbers from the {pool_name}.")
+            count = await asyncio.to_thread(delete_specific_numbers, numbers)
+            await update.message.reply_text(f"✅ Deleted {count} numbers from the Main Pool.")
 
     elif state == 'AWAITING_WITHDRAWAL_AMOUNT':
         user = USERS_CACHE.get(user_id)
@@ -720,13 +654,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['withdraw_amount'] = requested_amount
         context.user_data['state'] = None 
 
+        bdt_amount = int(requested_amount * BDT_RATE)
+
         keyboard = [
             [InlineKeyboardButton("Bkash", callback_data='withdraw_method_Bkash')],
+            [InlineKeyboardButton("Nagad", callback_data='withdraw_method_Nagad')],
             [InlineKeyboardButton("❌ Cancel", callback_data='main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            f"Withdrawing: ${requested_amount:.3f}\n\n"
+            f"Withdrawing: <b>${requested_amount:.3f}</b>\n"
+            f"You will receive approx: <b>{bdt_amount} BDT</b>\n"
+            f"<i>(Rate: 1 USD = {BDT_RATE} BDT)</i>\n\n"
             "<b>💸 Select withdrawal method:</b>", 
             parse_mode=ParseMode.HTML, 
             reply_markup=reply_markup
@@ -751,14 +690,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         old_balance = user['balance']
         user['balance'] -= amount_to_withdraw
+        
+        bdt_amount = int(amount_to_withdraw * BDT_RATE)
+        
         logging.info(f"User {user_id} balance reduced by {amount_to_withdraw:.3f}. Old: {old_balance:.3f}, New: {user['balance']:.3f}")
         await asyncio.to_thread(background_save_users)
         
         msg = (f"<b>💸 Withdrawal Request</b>\n"
                f"User: {user_id}\n"
-               f"Amount: ${amount_to_withdraw:.3f}\n"
+               f"Amount: <b>${amount_to_withdraw:.3f}</b>\n"
+               f"BDT Amount: <b>{bdt_amount} BDT</b>\n"
                f"Method: {method}\n"
-               f"Account: {account_number}")
+               f"Account: <code>{account_number}</code>")
+               
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Approve", callback_data=f'admin_approve_{user_id}_{amount_to_withdraw}'),
              InlineKeyboardButton("Decline", callback_data=f'admin_decline_{user_id}_{amount_to_withdraw}')]
@@ -785,11 +729,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👤 Account":
         user = USERS_CACHE.get(user_id, {})
         bal = user.get('balance', 0.0)
+        bdt_approx = int(bal * BDT_RATE)
         msg = (
             f"<b>👤 Your Account</b>\n\n"
             f"<b>Name:</b> {html_escape(user.get('first_name'))}\n"
             f"<b>User:</b> @{html_escape(user.get('username', 'N/A'))}\n"
-            f"<b>💰 Balance:</b> ${bal:.3f}"
+            f"<b>💰 Balance:</b> ${bal:.3f} (~{bdt_approx} BDT)"
         )
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("💸 Withdraw", callback_data='withdraw'), InlineKeyboardButton("🔙 Back", callback_data='main_menu')]])
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -819,7 +764,8 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         context.user_data['state'] = 'AWAITING_WITHDRAWAL_AMOUNT'
         
         await query.edit_message_text(
-            "<b>💸 Please enter the amount you want to withdraw:</b>", 
+            "<b>💸 Please enter the amount you want to withdraw:</b>\n"
+            "<i>Example: 2.50</i>", 
             parse_mode=ParseMode.HTML, 
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='main_menu')]])
         )
@@ -840,17 +786,15 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("⚠️ Wait 5 seconds", show_alert=True)
             return
 
-        number, is_fresh_pool = await asyncio.to_thread(get_number_from_pools, country)
+        number = await asyncio.to_thread(get_number_from_pool, country)
         
         if number:
-            # Store full data object, not just the number string
+            # Store full data object
             num_data = {
                 'number': number,
-                'claimed_time': time.time(),
-                'is_fresh_pool': is_fresh_pool
+                'claimed_time': time.time()
             }
             
-            # Use 'active_numbers' for the new structure
             if 'active_numbers' not in user: user['active_numbers'] = []
             user['active_numbers'].append(num_data)
             user['last_number_time'] = time.time()
@@ -859,10 +803,9 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await asyncio.to_thread(background_save_users)
             
             name, flag = detect_country_from_phone(number)
-            fresh_note = " (Fresh)" if is_fresh_pool else ""
             
             msg = (
-                f"<b>🎉 Number Acquired!{fresh_note}</b>\n\n"
+                f"<b>🎉 Number Acquired!</b>\n\n"
                 f"<b>🌍 Country:</b> {flag} <i>{name}</i>\n\n"
                 f"<b>📞 Number:</b> <code>{number}</code>\n\n"
                 f"<i>⏳ Waiting for SMS...</i>"
@@ -895,7 +838,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             
     elif data.startswith('country_') and user_id == str(ADMIN_ID):
         country = data.replace('country_', '')
-        # This function is no longer defined. Admin removal should be done via /delete command.
         await context.bot.send_message(chat_id=user_id, text=f"❌ Please use the /delete command to remove numbers.")
 
     elif data.startswith('admin_approve_') or data.startswith('admin_decline_'):
@@ -917,8 +859,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 async def background_number_cleanup_task(application: Application):
     """
     Checks active user numbers. If a number has timed out (no OTP received yet), 
-    it is removed from the user's active list and recycled to the fresh_numbers.txt pool 
-    (unless it originated from the fresh pool).
+    it is removed from the user's active list and returned to the pool.
     """
     while not shutdown_event.is_set():
         try:
@@ -936,31 +877,24 @@ async def background_number_cleanup_task(application: Application):
                 for num_data in active_numbers_copy:
                     number = num_data.get('number')
                     claimed_time = num_data.get('claimed_time', 0)
-                    is_fresh_pool = num_data.get('is_fresh_pool', False)
                     
                     if not number or now - claimed_time < timeout_seconds:
                         # Number is still within the timeout period
                         new_active_numbers.append(num_data)
                     else:
-                        # Timeout reached and no SMS received
-                        
-                        # Only return to the fresh pool if it was NOT originally a fresh number
-                        if not is_fresh_pool: 
-                            numbers_to_return.add(number)
-                            logging.info(f"Number {number} for user {uid} timed out and moved to fresh.txt.")
-                        else:
-                            logging.info(f"Fresh number {number} for user {uid} timed out and disposed.")
-                            
-                        users_to_save = True # Indicate that the user's list has changed
+                        # Timeout reached and no SMS received - Return to pool
+                        numbers_to_return.add(number)
+                        logging.info(f"Number {number} for user {uid} timed out and returned to pool.")
+                        users_to_save = True 
                         
                 user['active_numbers'] = new_active_numbers
                 
             # Perform file writes outside the user loop
             if numbers_to_return:
-                current_fresh = load_numbers_set(FRESH_NUMBERS_FILE)
+                current_pool = load_numbers_set(NUMBERS_FILE)
                 # Add only new unique numbers
-                current_fresh.update(numbers_to_return - current_fresh)
-                await asyncio.to_thread(save_numbers_set, FRESH_NUMBERS_FILE, current_fresh)
+                current_pool.update(numbers_to_return - current_pool)
+                await asyncio.to_thread(save_numbers_set, NUMBERS_FILE, current_pool)
                 
             if users_to_save:
                 await asyncio.to_thread(background_save_users)
@@ -983,7 +917,7 @@ async def sms_watcher_task(application: Application):
                 await asyncio.sleep(15)
                 continue
                 
-            # New: Build phone map from active_numbers (complex object)
+            # Build phone map from active_numbers
             phone_map = {}
             for uid, udata in USERS_CACHE.items():
                 for num_data in udata.get('active_numbers', []):
@@ -1033,14 +967,14 @@ async def sms_watcher_task(application: Application):
                             user['balance'] += SMS_AMOUNT
                             dirty = True
                             
-                            # NEW: Remove number from user's active list on successful SMS
+                            # Remove number from user's active list on successful SMS
                             user['active_numbers'] = [
                                 num_data for num_data in user['active_numbers'] 
                                 if num_data['number'] != phone
                             ]
                             
-                            # NEW: Remove number permanently from all pools
-                            asyncio.to_thread(remove_number_from_pools, phone)
+                            # Remove number permanently from pool
+                            asyncio.to_thread(remove_number_from_pool, phone)
                             
                             # STYLING UPDATE: User Message
                             user_msg = (
@@ -1072,11 +1006,8 @@ async def main_bot_loop():
     
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("sms", sms_command))
     application.add_handler(CommandHandler("add", add_command))
     application.add_handler(CommandHandler("delete", delete_command))
-    application.add_handler(CommandHandler("remove", delete_command))
-    application.add_handler(CommandHandler("new", new_session_command))
     application.add_handler(CommandHandler("top", top_command))
     application.add_handler(CallbackQueryHandler(button_callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -1087,7 +1018,7 @@ async def main_bot_loop():
     
     asyncio.create_task(sms_watcher_task(application))
     asyncio.create_task(rate_limited_sender_task(application))
-    asyncio.create_task(background_number_cleanup_task(application)) # New cleanup task
+    asyncio.create_task(background_number_cleanup_task(application))
     
     await shutdown_event.wait()
     await application.stop()
