@@ -339,6 +339,24 @@ def delete_specific_numbers(number_list):
             
     return removed_count
 
+def delete_numbers_by_country(country_name):
+    """Removes all numbers belonging to a specific country from numbers.txt."""
+    target_country = country_name.strip().lower()
+    current_numbers = load_numbers_set(NUMBERS_FILE)
+    to_remove = set()
+    
+    for num in current_numbers:
+        name, _ = detect_country_from_phone(num)
+        if name.lower() == target_country:
+            to_remove.add(num)
+            logging.info(f"Removed {num} (Country: {name})")
+            
+    if to_remove:
+        current_numbers -= to_remove
+        save_numbers_set(NUMBERS_FILE, current_numbers)
+            
+    return len(to_remove)
+
 def hide_number(number):
     if len(str(number)) > 7:
         num_str = str(number)
@@ -556,7 +574,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
     context.user_data['state'] = 'DELETING_NUMBER'
-    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers to remove (plain text):</b></blockquote>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("<blockquote><b>🗑️ Send list of numbers (plain text) OR a country name (e.g. 'United States') to remove:</b></blockquote>", parse_mode=ParseMode.HTML)
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -627,11 +645,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Done.")
             return
         
-        numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
-        
-        if numbers:
-            count = await asyncio.to_thread(delete_specific_numbers, numbers)
-            await update.message.reply_text(f"✅ Deleted {count} numbers from the Main Pool.")
+        # Check if input looks like a list of numbers (contains digits)
+        if any(char.isdigit() for char in text):
+            numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
+            if numbers:
+                count = await asyncio.to_thread(delete_specific_numbers, numbers)
+                await update.message.reply_text(f"✅ Deleted {count} numbers from the Main Pool.")
+        else:
+            # Treat input as a country name
+            country_name = text.strip()
+            count = await asyncio.to_thread(delete_numbers_by_country, country_name)
+            await update.message.reply_text(f"✅ Deleted {count} numbers matching country '{country_name}'.")
 
     elif state == 'AWAITING_WITHDRAWAL_AMOUNT':
         user = USERS_CACHE.get(user_id)
