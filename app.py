@@ -47,7 +47,7 @@ UPDATE_GROUP_LINK = "https://chat.whatsapp.com/IR1iW9eePp3Kfx44sKO6u9"
 ADMIN_USERNAME = "@guarantesmss" 
 
 # --- Economics & Rules ---
-SMS_AMOUNT = 0.005          # $0.005 per OTP
+SMS_AMOUNT = 0.004          # $0.005 per OTP
 REFERRAL_PERCENT = 0.05     # 5% Commission
 BDT_RATE = 125              # 1 USD = 125 BDT
 NUMBER_TIMEOUT_MINUTES = 10 
@@ -384,7 +384,7 @@ async def check_subscription(user_id, bot):
         return False 
 
 async def ask_subscription(update, context):
-    channel_invite_link = "https://t.me/guaranteesms" 
+    channel_invite_link = "https://t.me/guarantesms" 
     keyboard = [
         [InlineKeyboardButton("📢 Join Channel", url=channel_invite_link)],
         [InlineKeyboardButton("✅ Check Joined", callback_data='check_sub')]
@@ -404,7 +404,28 @@ async def delayed_broadcast_task(app, summary_text):
     await asyncio.sleep(600)
     try:
         msg = f"<b>🔔 New Numbers Added!</b>\n\n{summary_text}\n\n<b>Start work. Gain more!</b>"
-        await app.bot.send_message(chat_id=GROUP_ID, text=msg, parse_mode=ParseMode.HTML)
+        
+        # 1. Send to Group
+        try:
+            await app.bot.send_message(chat_id=GROUP_ID, text=msg, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            logging.error(f"Group broadcast failed: {e}")
+
+        # 2. Queue for all users
+        count = 0
+        for uid in list(USERS_CACHE.keys()):
+            try:
+                await MESSAGE_QUEUE.put({
+                    'chat_id': uid,
+                    'text': msg,
+                    'parse_mode': ParseMode.HTML,
+                    'reply_markup': None
+                })
+                count += 1
+            except Exception: pass
+        
+        logging.info(f"Broadcast queued for {count} users.")
+        
     except Exception as e:
         logging.error(f"Broadcast failed: {e}")
 
@@ -613,6 +634,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Fallback if neither exists (rare)
         await context.bot.send_message(chat_id=uid, text=welcome, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
 
+async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Sort users by referral count (descending)
+    top_users = sorted(
+        USERS_CACHE.items(),
+        key=lambda x: x[1].get('ref_count', 0),
+        reverse=True
+    )[:10]
+
+    msg = "<b>🏆 Top 10 Referrers</b>\n\n"
+    for idx, (uid, data) in enumerate(top_users, 1):
+        name = html_escape(data.get('first_name', 'User'))
+        count = data.get('ref_count', 0)
+        msg += f"{idx}. <b>{name}</b> - {count} Refs\n"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
     context.user_data['state'] = 'ADDING_NUMBER'
@@ -651,12 +688,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
         if numbers:
             await asyncio.to_thread(add_numbers_to_file, numbers)
+            
+            # Count numbers per country and get flags
             country_counts = {}
             for num in numbers:
-                name, _ = detect_country_from_phone(num)
-                country_counts[name] = country_counts.get(name, 0) + 1
-            summary = "\n".join([f"{c} ({n})" for c, n in country_counts.items()])
+                name, flag = detect_country_from_phone(num)
+                # Key by name to group same country, store flag
+                if name not in country_counts:
+                    country_counts[name] = {'flag': flag, 'count': 0}
+                country_counts[name]['count'] += 1
+            
+            # Create summary with flags: "🇱🇧 Lebanon (100)"
+            summary_lines = []
+            for name, data in country_counts.items():
+                summary_lines.append(f"{data['flag']} {name} ({data['count']})")
+            
+            summary = "\n".join(summary_lines)
+            
             asyncio.create_task(delayed_broadcast_task(context.application, summary))
+            
             context.user_data['state'] = None
             await update.message.reply_text(f"✅ Added {len(numbers)} numbers. Auto-broadcast scheduled in 10 mins.")
         else:
@@ -948,6 +998,7 @@ if __name__ == "__main__":
     load_users_cache()
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("top", top_command))
     app.add_handler(CommandHandler("add", add_command))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
