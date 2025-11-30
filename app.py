@@ -245,6 +245,18 @@ def remove_number_from_pool(number):
         regular_numbers.remove(number)
         save_numbers_set(NUMBERS_FILE, regular_numbers)
 
+def delete_specific_numbers(number_list):
+    current_numbers = load_numbers_set(NUMBERS_FILE)
+    target_numbers = set(n.strip() for n in number_list)
+    removed_count = 0
+    for num in target_numbers:
+        if num in current_numbers:
+            current_numbers.remove(num)
+            removed_count += 1
+    if removed_count > 0:
+        save_numbers_set(NUMBERS_FILE, current_numbers)
+    return removed_count
+
 def add_numbers_to_file(number_list):
     if not number_list: return
     current_numbers = load_numbers_set(NUMBERS_FILE)
@@ -635,20 +647,69 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=uid, text=welcome, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Sort users by referral count (descending)
+    # Sort users by total balance (descending)
     top_users = sorted(
         USERS_CACHE.items(),
-        key=lambda x: x[1].get('ref_count', 0),
+        key=lambda x: x[1].get('balance', 0.0) + x[1].get('ref_balance', 0.0),
         reverse=True
     )[:10]
 
-    msg = "<b>🏆 Top 10 Referrers</b>\n\n"
+    msg = "<b>🏆 Top 10 Users (by Balance)</b>\n\n"
     for idx, (uid, data) in enumerate(top_users, 1):
         name = html_escape(data.get('first_name', 'User'))
-        count = data.get('ref_count', 0)
-        msg += f"{idx}. <b>{name}</b> - {count} Refs\n"
+        total_bal = data.get('balance', 0.0) + data.get('ref_balance', 0.0)
+        msg += f"{idx}. <b>{name}</b> - ${total_bal:.4f}\n"
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    
+    if uid not in USERS_CACHE:
+        USERS_CACHE[uid] = {
+            "username": user.username, "first_name": user.first_name,
+            "active_numbers": [], "balance": 0.0, "ref_balance": 0.0,
+            "ref_count": 0, "last_seen": time.time(), "referrer_id": None
+        }
+    
+    main = USERS_CACHE[uid].get('balance', 0.0)
+    ref = USERS_CACHE[uid].get('ref_balance', 0.0)
+    total = main + ref
+    
+    main_bdt = int(main * BDT_RATE)
+    ref_bdt = int(ref * BDT_RATE)
+    total_bdt = int(total * BDT_RATE)
+    
+    msg = (
+        f"<b>💰 Wallet Details</b>\n\n"
+        f"<b>💵 Main Balance:</b> ${main:.4f} (~{main_bdt} ৳)\n"
+        f"<b>👥 Referred Balance:</b> ${ref:.4f} (~{ref_bdt} ৳)\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<b>💲 Total Balance:</b> ${total:.4f} (~{total_bdt} ৳)"
+    )
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("💸 Balance Transfer", callback_data="start_transfer")]])
+    await update.message.reply_text(msg, reply_markup=kb, parse_mode=ParseMode.HTML)
+
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) != str(ADMIN_ID): return
+    
+    numbers_to_delete = []
+    
+    if context.args:
+        numbers_to_delete.extend(context.args)
+    
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        text = update.message.reply_to_message.text
+        found = re.findall(r'\b\d{7,15}\b', text)
+        numbers_to_delete.extend(found)
+        
+    if not numbers_to_delete:
+        await update.message.reply_text("⚠️ Usage: `/delete <number>` or reply to a message containing numbers.", parse_mode=ParseMode.MARKDOWN)
+        return
+        
+    count = await asyncio.to_thread(delete_specific_numbers, numbers_to_delete)
+    await update.message.reply_text(f"🗑️ Deleted {count} numbers from pool.")
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
@@ -999,6 +1060,8 @@ if __name__ == "__main__":
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("top", top_command))
+    app.add_handler(CommandHandler("balance", balance_command))
+    app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(CommandHandler("add", add_command))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
