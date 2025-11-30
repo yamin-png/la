@@ -346,6 +346,9 @@ def get_main_menu_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+def get_cancel_keyboard():
+    return ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True)
+
 def get_user_country_keyboard():
     all_numbers = load_numbers_set(NUMBERS_FILE)
     counts = {}
@@ -627,6 +630,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_subscription(user.id, context.bot):
         await ask_subscription(update, context)
         return
+        
+    # Global Cancel Button Logic
+    if text == "❌ Cancel":
+        context.user_data['state'] = None
+        await update.message.reply_text("🚫 Action Cancelled.", reply_markup=get_main_menu_keyboard())
+        return
 
     state = context.user_data.get('state')
 
@@ -653,7 +662,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             method = context.user_data.get('withdraw_method')
             min_usd = MIN_WITHDRAW_BINANCE if method == 'Binance' else MIN_WITHDRAW_BKASH_USD
             
-            total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+            current_main = USERS_CACHE[uid].get('balance', 0.0)
+            current_ref = USERS_CACHE[uid].get('ref_balance', 0.0)
+            # Fix floating point precision: round to 4 decimals for logic
+            total_bal = round(current_main + current_ref, 4)
             
             if amount < min_usd:
                 await update.message.reply_text(f"❌ Minimum for {method} is ${min_usd:.2f}")
@@ -665,7 +677,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             context.user_data['withdraw_amount'] = amount
             context.user_data['state'] = f'AWAITING_WITHDRAWAL_ACCOUNT_{method}'
-            await update.message.reply_text(f"<b>Enter your {method} wallet/number:</b>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"<b>Enter your {method} wallet/number:</b>", parse_mode=ParseMode.HTML, reply_markup=get_cancel_keyboard())
             return
         except ValueError:
             await update.message.reply_text("❌ Invalid number.")
@@ -676,7 +688,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         method = state.split('_')[-1]
         amount = context.user_data.get('withdraw_amount')
         
-        total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+        current_main = USERS_CACHE[uid].get('balance', 0.0)
+        current_ref = USERS_CACHE[uid].get('ref_balance', 0.0)
+        total_bal = round(current_main + current_ref, 4)
+        
         if total_bal < amount:
             await update.message.reply_text("❌ Insufficient balance.")
             context.user_data['state'] = None
@@ -705,7 +720,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("Decline", callback_data=f'admin_decline_{uid}_{amount}')]
         ])
         await context.bot.send_message(chat_id=PAYMENT_CHANNEL_ID, text=msg, reply_markup=kb, parse_mode=ParseMode.HTML)
-        await update.message.reply_text("✅ Request Submitted.")
+        await update.message.reply_text("✅ Request Submitted.", reply_markup=get_main_menu_keyboard())
         context.user_data['state'] = None
         return
 
@@ -733,20 +748,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['transfer_username'] = target_username
         context.user_data['state'] = 'TRANSFER_GET_AMOUNT'
         msg = f"<b>✅ User Found!</b>\nName: {html_escape(target_name)}\nUsername: @{html_escape(target_username)}\n\n<b>Enter amount ($):</b>"
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=get_cancel_keyboard())
         return
 
     if state == 'TRANSFER_GET_AMOUNT':
         try:
             amount = float(text)
-            total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+            current_main = USERS_CACHE[uid].get('balance', 0.0)
+            current_ref = USERS_CACHE[uid].get('ref_balance', 0.0)
+            total_bal = round(current_main + current_ref, 4)
+            
             if amount <= 0 or amount > total_bal:
-                await update.message.reply_text("❌ Invalid amount or insufficient balance.")
+                await update.message.reply_text(f"❌ Invalid amount or insufficient balance. Available: ${total_bal:.4f}")
                 return
             
             target_name = context.user_data['transfer_name']
             target_username = context.user_data['transfer_username']
             target_id = context.user_data['transfer_target']
+            
+            # Send message with Main Menu KB first to restore UI, then send Inline Confirmation
+            await update.message.reply_text("✅ Please confirm below:", reply_markup=get_main_menu_keyboard())
             
             msg = f"<b>🔄 Confirm Transfer?</b>\n\nTo: <b>{html_escape(target_name)}</b> (@{html_escape(target_username)})\nAmount: <b>${amount:.4f}</b>"
             kb = InlineKeyboardMarkup([
@@ -858,7 +879,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
     elif data == 'start_transfer':
         context.user_data['state'] = 'TRANSFER_GET_USER'
-        await query.message.reply_text("<b>👤 Enter recipient Username or ID:</b>", parse_mode=ParseMode.HTML)
+        await query.message.reply_text("<b>👤 Enter recipient Username or ID:</b>", parse_mode=ParseMode.HTML, reply_markup=get_cancel_keyboard())
         await query.answer()
 
     elif data.startswith('confirm_transfer_'):
@@ -866,7 +887,9 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         target_id = parts[2]
         amount = float(parts[3])
         
-        total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+        current_main = USERS_CACHE[uid].get('balance', 0.0)
+        current_ref = USERS_CACHE[uid].get('ref_balance', 0.0)
+        total_bal = round(current_main + current_ref, 4)
         
         if total_bal >= amount:
             # Deduct
@@ -895,7 +918,7 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         method = data.split('_')[2]
         context.user_data['withdraw_method'] = method
         context.user_data['state'] = 'AWAITING_WITHDRAWAL_AMOUNT'
-        await query.message.reply_text(f"<b>💸 Enter amount for {method} ($):</b>", parse_mode=ParseMode.HTML)
+        await query.message.reply_text(f"<b>💸 Enter amount for {method} ($):</b>", parse_mode=ParseMode.HTML, reply_markup=get_cancel_keyboard())
         await query.answer()
 
     elif data.startswith('admin_approve_') or data.startswith('admin_decline_'):
