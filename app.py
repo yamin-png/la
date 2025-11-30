@@ -539,7 +539,7 @@ async def sms_watcher_task(app):
                                 except: pass
                             
                             user['active_numbers'] = [n for n in user['active_numbers'] if n['number'] != phone]
-                            asyncio.to_thread(remove_number_from_pool, phone)
+                            await asyncio.to_thread(remove_number_from_pool, phone) # Added await
                             
                             user_msg = (
                                 f"<b>🔔 New OTP Received!</b> ✨\n\n"
@@ -603,7 +603,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     welcome = "<b>👋 Welcome!</b>\n\n<i>Select an option from the menu below:</i>"
-    await update.message.reply_text(welcome, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
+    
+    # Fix: Handle both Message and CallbackQuery updates
+    if update.message:
+        await update.message.reply_text(welcome, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(welcome, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
+    else:
+        # Fallback if neither exists (rare)
+        await context.bot.send_message(chat_id=uid, text=welcome, reply_markup=get_main_menu_keyboard(), parse_mode=ParseMode.HTML)
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != str(ADMIN_ID): return
