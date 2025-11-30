@@ -396,7 +396,7 @@ async def check_subscription(user_id, bot):
         return False 
 
 async def ask_subscription(update, context):
-    channel_invite_link = "https://t.me/guarantesms" 
+    channel_invite_link = "https://t.me/guaranteesms" 
     keyboard = [
         [InlineKeyboardButton("📢 Join Channel", url=channel_invite_link)],
         [InlineKeyboardButton("✅ Check Joined", callback_data='check_sub')]
