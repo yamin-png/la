@@ -100,18 +100,34 @@ def save_json_data(filepath, data):
 def load_users_cache():
     global USERS_CACHE
     USERS_CACHE = load_json_data(USERS_FILE, {})
-    # Migration: Ensure all fields exist
+    
     current_time = time.time()
+    
+    # 1. First Pass: Initialize fields
     for uid in USERS_CACHE:
         user = USERS_CACHE[uid]
         if 'active_numbers' not in user: user['active_numbers'] = []
         if 'referrer_id' not in user: user['referrer_id'] = None
         if 'last_seen' not in user: user['last_seen'] = current_time
-        if 'balance' not in user: user['balance'] = 0.0
+        if 'balance' not in user: user['balance'] = 0.0      # Main Balance
+        if 'ref_balance' not in user: user['ref_balance'] = 0.0 # Referral Balance
+        if 'ref_count' not in user: user['ref_count'] = 0    # Total Referred
         if 'username' not in user: user['username'] = "Unknown"
         if 'first_name' not in user: user['first_name'] = "User"
+
+    # 2. Second Pass: Recalculate Referral Counts (Fixes any sync issues)
+    # Reset counts first to ensure accuracy
+    temp_counts = {}
+    for uid, data in USERS_CACHE.items():
+        ref_id = data.get('referrer_id')
+        if ref_id and ref_id in USERS_CACHE:
+            temp_counts[ref_id] = temp_counts.get(ref_id, 0) + 1
             
-    logging.info(f"Loaded {len(USERS_CACHE)} users.")
+    # Apply counts
+    for uid, count in temp_counts.items():
+        USERS_CACHE[uid]['ref_count'] = count
+            
+    logging.info(f"Loaded {len(USERS_CACHE)} users. Referral counts updated.")
 
 def background_save_users():
     try:
@@ -201,7 +217,6 @@ COUNTRY_PREFIXES = {
 def detect_country_from_phone(phone):
     if not phone: return "Unknown", "🌍"
     phone_str = str(phone).replace("+", "").replace(" ", "").replace("-", "").strip()
-    # Check largest prefixes first
     for length in [4, 3, 2, 1]:
         prefix = phone_str[:length]
         if prefix in COUNTRY_PREFIXES:
@@ -265,6 +280,24 @@ def extract_otp_from_text(text):
             return otp
     return "N/A"
 
+def deduct_balance(user_id, amount):
+    """Safely deduct balance starting from Main then Referral."""
+    user = USERS_CACHE[user_id]
+    main_bal = user.get('balance', 0.0)
+    ref_bal = user.get('ref_balance', 0.0)
+    
+    if main_bal >= amount:
+        user['balance'] -= amount
+    else:
+        # Deduct all main, remainder from ref
+        remainder = amount - main_bal
+        user['balance'] = 0.0
+        if ref_bal >= remainder:
+            user['ref_balance'] -= remainder
+        else:
+            # Should not happen if pre-check passed, but safety:
+            user['ref_balance'] = 0.0 
+
 # --- Panel Manager ---
 class NewPanelSmsManager:
     def fetch_sms_from_api(self):
@@ -307,7 +340,6 @@ class NewPanelSmsManager:
 # --- Keyboards ---
 
 def get_main_menu_keyboard():
-    # Rule 5: Updated Menu Structure
     keyboard = [
         [KeyboardButton("🎁 Get Number"), KeyboardButton("💰 Balance")],
         [KeyboardButton("💸 Withdraw"), KeyboardButton("👤 Account")]
@@ -339,7 +371,6 @@ def get_user_country_keyboard():
     return InlineKeyboardMarkup(keyboard), False
 
 async def check_subscription(user_id, bot):
-    # Rule 1: Forced Channel Subscription
     if str(user_id) == str(ADMIN_ID): return True
     try:
         member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL_ID, user_id=user_id)
@@ -347,23 +378,17 @@ async def check_subscription(user_id, bot):
             return False
         return True
     except Exception:
-        # If bot is not admin or channel private, assume false or handle gracefully
         return False 
 
 async def ask_subscription(update, context):
-    # This URL should be the invite link for the channel -1002141326763
     channel_invite_link = "https://t.me/guarantesms" 
-    
     keyboard = [
         [InlineKeyboardButton("📢 Join Channel", url=channel_invite_link)],
         [InlineKeyboardButton("✅ Check Joined", callback_data='check_sub')]
     ]
-    
     msg = "<b>⚠️ Access Denied</b>\n\nYou must join our channel to use this bot."
-    
     if update.callback_query:
         await update.callback_query.answer("Join channel first!", show_alert=True)
-        # Avoid editing if text is same, just send new if needed or simple answer
         try:
             await update.callback_query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
         except: pass
@@ -373,15 +398,9 @@ async def ask_subscription(update, context):
 # --- Tasks ---
 
 async def delayed_broadcast_task(app, summary_text):
-    # Rule 3: Auto Broadcast after 10 mins (600 seconds)
-    # This runs in background, doesn't freeze bot
     await asyncio.sleep(600)
     try:
-        msg = (
-            f"<b>🔔 New Numbers Added!</b>\n\n"
-            f"{summary_text}\n\n"
-            f"<b>Start work. Gain more!</b>"
-        )
+        msg = f"<b>🔔 New Numbers Added!</b>\n\n{summary_text}\n\n<b>Start work. Gain more!</b>"
         await app.bot.send_message(chat_id=GROUP_ID, text=msg, parse_mode=ParseMode.HTML)
     except Exception as e:
         logging.error(f"Broadcast failed: {e}")
@@ -401,31 +420,24 @@ async def rate_limited_sender_task(app):
         except asyncio.CancelledError: break
 
 async def inactivity_checker_task(app):
-    # Rule 4: Inactivity Reminder (12 hours)
     while not shutdown_event.is_set():
         try:
             now = time.time()
-            cutoff = now - (12 * 3600) # 12 hours ago
+            cutoff = now - (12 * 3600) 
             
             for uid, data in USERS_CACHE.items():
                 last_seen = data.get('last_seen', 0)
                 last_reminded = data.get('last_inactivity_reminder', 0)
-                
-                # If inactive > 12h AND not reminded in last 24h
                 if last_seen < cutoff and (now - last_reminded > 24 * 3600):
-                    msg = (
-                        "দুঃখিত আপনি কেন আমাদের বট টা ব্যবহার করছেন না ? "
-                        "কোড রিসিভ হচ্ছে না ? আপনি অ্যাডমিন এর সাথে যোগাযোগ করতে পারেন - @guarantesmss"
-                    )
+                    msg = "দুঃখিত আপনি কেন আমাদের বট টা ব্যবহার করছেন না ? কোড রিসিভ হচ্ছে না ? আপনি অ্যাডমিন এর সাথে যোগাযোগ করতে পারেন - @guarantesmss"
                     try:
                         await app.bot.send_message(chat_id=uid, text=msg)
                         data['last_inactivity_reminder'] = now
                     except: pass 
-            
             await asyncio.to_thread(background_save_users)
         except Exception as e:
             logging.error(f"Inactivity task error: {e}")
-        await asyncio.sleep(3600) # Check every hour
+        await asyncio.sleep(3600) 
 
 async def background_number_cleanup_task(app):
     while not shutdown_event.is_set():
@@ -486,9 +498,6 @@ async def sms_watcher_task(app):
                         
                         owner_id = phone_map.get(phone)
                         name, flag = detect_country_from_phone(phone)
-                        
-                        # Rule 2: Group Message Footer Update
-                        # "{user’s first name} earned X (~X Bdt) . Be active"
                         owner_name = "{user}"
                         if owner_id and owner_id in USERS_CACHE:
                             owner_name = html_escape(USERS_CACHE[owner_id].get('first_name', 'User'))
@@ -505,21 +514,19 @@ async def sms_watcher_task(app):
                             f"<i>📝 Message:</i>\n<blockquote>{html_escape(msg_text)}</blockquote>\n\n"
                             f"<i>{footer}</i>"
                         )
-                        kb = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("number bot", url=NUMBER_BOT_LINK),
-                             InlineKeyboardButton("update group", url=UPDATE_GROUP_LINK)]
-                        ])
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton("number bot", url=NUMBER_BOT_LINK),
+                                                  InlineKeyboardButton("update group", url=UPDATE_GROUP_LINK)]])
                         await MESSAGE_QUEUE.put({'chat_id': GROUP_ID, 'text': group_msg, 'parse_mode': ParseMode.HTML, 'reply_markup': kb})
                         
                         if owner_id and owner_id in USERS_CACHE:
                             user = USERS_CACHE[owner_id]
-                            user['balance'] += SMS_AMOUNT
+                            user['balance'] += SMS_AMOUNT # Add to Main Balance
                             
-                            # Rule 6: Referral Commission (5% per SMS)
+                            # Referral Logic
                             referrer_id = user.get('referrer_id')
                             if referrer_id and referrer_id in USERS_CACHE:
                                 comm = SMS_AMOUNT * REFERRAL_PERCENT
-                                USERS_CACHE[referrer_id]['balance'] += comm
+                                USERS_CACHE[referrer_id]['ref_balance'] += comm # Add to Referral Balance
                                 try:
                                     await app.bot.send_message(
                                         chat_id=referrer_id, 
@@ -528,7 +535,6 @@ async def sms_watcher_task(app):
                                     )
                                 except: pass
                             
-                            # Cleanup: Remove number after receiving code
                             user['active_numbers'] = [n for n in user['active_numbers'] if n['number'] != phone]
                             asyncio.to_thread(remove_number_from_pool, phone)
                             
@@ -555,31 +561,40 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = str(user.id)
     
-    # Rule 10: Capture data regardless of start
     if uid not in USERS_CACHE:
         USERS_CACHE[uid] = {
             "username": user.username, "first_name": user.first_name,
-            "active_numbers": [], "balance": 0.0, "last_seen": time.time(),
-            "referrer_id": None
+            "active_numbers": [], "balance": 0.0, "ref_balance": 0.0,
+            "ref_count": 0, "last_seen": time.time(), "referrer_id": None
         }
     
-    # Update Info
     USERS_CACHE[uid]['first_name'] = user.first_name
     USERS_CACHE[uid]['username'] = user.username
     USERS_CACHE[uid]['last_seen'] = time.time()
     
-    # Rule 4: Retroactive Referral (No Override)
     args = context.args
     if args and len(args) > 0:
         possible_ref = args[0]
         current_ref = USERS_CACHE[uid].get('referrer_id')
         if not current_ref and possible_ref in USERS_CACHE and possible_ref != uid:
             USERS_CACHE[uid]['referrer_id'] = possible_ref
+            
+            # Increment Referrer Count
+            USERS_CACHE[possible_ref]['ref_count'] = USERS_CACHE[possible_ref].get('ref_count', 0) + 1
+            
             logging.info(f"User {uid} retroactively referred by {possible_ref}")
+            try:
+                referrer_name = html_escape(user.first_name)
+                await context.bot.send_message(
+                    chat_id=possible_ref,
+                    text=f"<b>🎉 New Referral!</b>\n\nUser <b>{referrer_name}</b> has joined via your link.",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logging.error(f"Failed to notify referrer {possible_ref}: {e}")
     
     await asyncio.to_thread(background_save_users)
     
-    # Rule 1: Check Subscription
     if not await check_subscription(user.id, context.bot):
         await ask_subscription(update, context)
         return
@@ -598,42 +613,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(user.id)
     text = update.message.text
     
-    # Rule 10: Capture User Data & Update Info on ANY message
     if uid not in USERS_CACHE:
         USERS_CACHE[uid] = {
             "username": user.username, "first_name": user.first_name,
-            "active_numbers": [], "balance": 0.0, "referrer_id": None
+            "active_numbers": [], "balance": 0.0, "ref_balance": 0.0,
+            "ref_count": 0, "referrer_id": None
         }
     
-    # Rule 7: Auto-Update User File
     USERS_CACHE[uid]['last_seen'] = time.time()
     USERS_CACHE[uid]['username'] = user.username 
     USERS_CACHE[uid]['first_name'] = user.first_name
 
-    # Rule 1: Check Subscription
     if not await check_subscription(user.id, context.bot):
         await ask_subscription(update, context)
         return
 
     state = context.user_data.get('state')
 
-    # --- Admin Logic ---
     if state == 'ADDING_NUMBER' and uid == str(ADMIN_ID):
         numbers = [n.strip() for n in text.split('\n') if n.strip().isdigit()]
         if numbers:
             await asyncio.to_thread(add_numbers_to_file, numbers)
-            
-            # Prepare Broadcast Summary
             country_counts = {}
             for num in numbers:
                 name, _ = detect_country_from_phone(num)
                 country_counts[name] = country_counts.get(name, 0) + 1
-            
             summary = "\n".join([f"{c} ({n})" for c, n in country_counts.items()])
-            
-            # Rule 3: Async broadcast after 10 minutes
             asyncio.create_task(delayed_broadcast_task(context.application, summary))
-            
             context.user_data['state'] = None
             await update.message.reply_text(f"✅ Added {len(numbers)} numbers. Auto-broadcast scheduled in 10 mins.")
         else:
@@ -645,22 +651,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             amount = float(text.strip())
             method = context.user_data.get('withdraw_method')
-            
-            # Logic Check
             min_usd = MIN_WITHDRAW_BINANCE if method == 'Binance' else MIN_WITHDRAW_BKASH_USD
+            
+            total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+            
             if amount < min_usd:
                 await update.message.reply_text(f"❌ Minimum for {method} is ${min_usd:.2f}")
                 return
             
-            if amount > USERS_CACHE[uid].get('balance', 0):
-                await update.message.reply_text("❌ Insufficient balance.")
+            if amount > total_bal:
+                await update.message.reply_text(f"❌ Insufficient balance. Total Available: ${total_bal:.4f}")
                 return
 
             context.user_data['withdraw_amount'] = amount
             context.user_data['state'] = f'AWAITING_WITHDRAWAL_ACCOUNT_{method}'
             await update.message.reply_text(f"<b>Enter your {method} wallet/number:</b>", parse_mode=ParseMode.HTML)
             return
-            
         except ValueError:
             await update.message.reply_text("❌ Invalid number.")
             return
@@ -670,20 +676,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         method = state.split('_')[-1]
         amount = context.user_data.get('withdraw_amount')
         
-        user_bal = USERS_CACHE[uid]['balance']
-        if user_bal < amount:
+        total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+        if total_bal < amount:
             await update.message.reply_text("❌ Insufficient balance.")
             context.user_data['state'] = None
             return
             
-        # Deduct Balance
-        USERS_CACHE[uid]['balance'] -= amount
+        # Deduct Balance Helper
+        deduct_balance(uid, amount)
         await asyncio.to_thread(background_save_users)
         
         bdt_final = int(amount * BDT_RATE)
         fee_msg = ""
-        
-        # Rule 9: Fee Logic for Bkash > 50 BDT (Extra 5 BDT fee shown to user/admin)
         if method == 'Bkash' and bdt_final > 50:
             bdt_final -= 5
             fee_msg = "(5 BDT Fee Deducted)"
@@ -705,14 +709,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = None
         return
 
-    # --- Balance Transfer Logic (Rule 6) ---
+    # --- Transfer Logic ---
     if state == 'TRANSFER_GET_USER':
         target_input = text.strip().replace('@', '').lower()
         target_id = None
         target_name = None
         target_username = None
-        
-        # Search for user
         for u, d in USERS_CACHE.items():
             u_name = d.get('username', '').lower() if d.get('username') else ""
             if u == target_input or u_name == target_input:
@@ -730,20 +732,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['transfer_name'] = target_name
         context.user_data['transfer_username'] = target_username
         context.user_data['state'] = 'TRANSFER_GET_AMOUNT'
-        
-        msg = (
-            f"<b>✅ User Found!</b>\n"
-            f"Name: {html_escape(target_name)}\n"
-            f"Username: @{html_escape(target_username)}\n\n"
-            f"<b>Enter amount to transfer ($):</b>"
-        )
+        msg = f"<b>✅ User Found!</b>\nName: {html_escape(target_name)}\nUsername: @{html_escape(target_username)}\n\n<b>Enter amount ($):</b>"
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
         return
 
     if state == 'TRANSFER_GET_AMOUNT':
         try:
             amount = float(text)
-            if amount <= 0 or amount > USERS_CACHE[uid]['balance']:
+            total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+            if amount <= 0 or amount > total_bal:
                 await update.message.reply_text("❌ Invalid amount or insufficient balance.")
                 return
             
@@ -751,12 +748,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_username = context.user_data['transfer_username']
             target_id = context.user_data['transfer_target']
             
-            # Verification Confirmation
-            msg = (
-                f"<b>🔄 Confirm Transfer?</b>\n\n"
-                f"To: <b>{html_escape(target_name)}</b> (@{html_escape(target_username)})\n"
-                f"Amount: <b>${amount:.4f}</b>"
-            )
+            msg = f"<b>🔄 Confirm Transfer?</b>\n\nTo: <b>{html_escape(target_name)}</b> (@{html_escape(target_username)})\nAmount: <b>${amount:.4f}</b>"
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Confirm", callback_data=f"confirm_transfer_{target_id}_{amount}"),
                  InlineKeyboardButton("❌ Cancel", callback_data="main_menu")]
@@ -769,31 +761,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Standard Menus ---
     if text == "🎁 Get Number":
-        # Rule 11: Clean Inbox (Delete user msg)
         try: await context.bot.delete_message(chat_id=uid, message_id=update.message.message_id)
         except: pass
-        
         kb, empty = get_user_country_keyboard()
         txt = "<b>🌍 Select Country:</b>" if not empty else "<b>😔 No numbers.</b>"
         await update.message.reply_text(txt, reply_markup=kb, parse_mode=ParseMode.HTML)
         
     elif text == "👤 Account":
-        # Rule 5: Account only shows Referral Link
         bot_username = context.bot.username
         link = f"https://t.me/{bot_username}?start={uid}"
-        msg = f"<b>🔗 Your Referral Link:</b>\n<code>{link}</code>\n\n<i>Share to earn {int(REFERRAL_PERCENT*100)}% commission!</i>"
+        ref_count = USERS_CACHE[uid].get('ref_count', 0)
+        
+        msg = (
+            f"<b>👤 Your Account</b>\n\n"
+            f"<b>👥 Total Referred:</b> {ref_count}\n"
+            f"<b>🔗 Referral Link:</b>\n<code>{link}</code>\n\n"
+            f"<i>Share to earn {int(REFERRAL_PERCENT*100)}% commission!</i>"
+        )
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
     elif text == "💰 Balance":
-        # Rule 5 & 6: Balance Section with Transfer Button
-        bal = USERS_CACHE[uid].get('balance', 0.0)
-        bdt = int(bal * BDT_RATE)
-        msg = f"<b>💰 Balance:</b> ${bal:.4f} (~{bdt} BDT)"
+        main = USERS_CACHE[uid].get('balance', 0.0)
+        ref = USERS_CACHE[uid].get('ref_balance', 0.0)
+        total = main + ref
+        
+        # BDT Conversions
+        main_bdt = int(main * BDT_RATE)
+        ref_bdt = int(ref * BDT_RATE)
+        total_bdt = int(total * BDT_RATE)
+        
+        msg = (
+            f"<b>💰 Wallet Details</b>\n\n"
+            f"<b>💵 Main Balance:</b> ${main:.4f} (~{main_bdt} ৳)\n"
+            f"<b>👥 Referred Balance:</b> ${ref:.4f} (~{ref_bdt} ৳)\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<b>💲 Total Balance:</b> ${total:.4f} (~{total_bdt} ৳)"
+        )
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("💸 Balance Transfer", callback_data="start_transfer")]])
         await update.message.reply_text(msg, reply_markup=kb, parse_mode=ParseMode.HTML)
 
     elif text == "💸 Withdraw":
-        # Rule 5 & 8: Separate Withdraw Menu
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Bkash (Min 100৳)", callback_data='withdraw_method_Bkash')],
             [InlineKeyboardButton("Binance (Min $1)", callback_data='withdraw_method_Binance')]
@@ -801,7 +808,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("<b>💸 Select Method:</b>", reply_markup=kb, parse_mode=ParseMode.HTML)
         
     else:
-        # Fallback to start for unknown commands or resets
         await start_command(update, context)
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -809,13 +815,11 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     uid = str(query.from_user.id)
     data = query.data
     
-    # Rule 10 & 7: Update info on interaction
     if uid in USERS_CACHE:
         USERS_CACHE[uid]['last_seen'] = time.time()
         USERS_CACHE[uid]['first_name'] = query.from_user.first_name
         USERS_CACHE[uid]['username'] = query.from_user.username
 
-    # Rule 1: Check Subscription (Skip for admin approvals/checks)
     if data == 'check_sub':
         if await check_subscription(uid, context.bot):
             await query.answer("✅ Verified! Welcome back.")
@@ -838,32 +842,20 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith('user_country_'):
         country = data.replace('user_country_', '')
         user = USERS_CACHE.get(uid)
-        
-        # Rule 11: Clean Inbox (Delete menu)
         try: await query.message.delete()
         except: pass
         
         number = await asyncio.to_thread(get_number_from_pool, country)
         if number:
             if 'active_numbers' not in user: user['active_numbers'] = []
-            
             user['active_numbers'].append({'number': number, 'claimed_time': time.time()})
-            # Keep only latest number to avoid confusion/clutter? Or allow multiple? 
-            # Prompt implies "get number", usually singular context.
-            
             name, flag = detect_country_from_phone(number)
-            msg = (
-                f"<b>🎉 Number Acquired!</b>\n\n"
-                f"<b>🌍 Country:</b> {flag} <i>{name}</i>\n"
-                f"<b>📞 Number:</b> <code>{number}</code>\n\n"
-                f"<i>⏳ Waiting for SMS...</i>"
-            )
+            msg = f"<b>🎉 Number Acquired!</b>\n\n<b>🌍 Country:</b> {flag} <i>{name}</i>\n<b>📞 Number:</b> <code>{number}</code>\n\n<i>⏳ Waiting for SMS...</i>"
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("OTP GROUP", url=GROUP_LINK)]])
             await context.bot.send_message(chat_id=uid, text=msg, parse_mode=ParseMode.HTML, reply_markup=kb)
         else:
             await context.bot.send_message(chat_id=uid, text="<b>😔 Number unavailable.</b>", parse_mode=ParseMode.HTML)
 
-    # --- Transfer Flow ---
     elif data == 'start_transfer':
         context.user_data['state'] = 'TRANSFER_GET_USER'
         await query.message.reply_text("<b>👤 Enter recipient Username or ID:</b>", parse_mode=ParseMode.HTML)
@@ -874,12 +866,16 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         target_id = parts[2]
         amount = float(parts[3])
         
-        if USERS_CACHE[uid]['balance'] >= amount:
-            USERS_CACHE[uid]['balance'] -= amount
+        total_bal = USERS_CACHE[uid].get('balance', 0.0) + USERS_CACHE[uid].get('ref_balance', 0.0)
+        
+        if total_bal >= amount:
+            # Deduct
+            deduct_balance(uid, amount)
+            
+            # Credit Target (Main Balance by default)
             if target_id in USERS_CACHE:
                 USERS_CACHE[target_id]['balance'] += amount
                 await asyncio.to_thread(background_save_users)
-                
                 await query.edit_message_text(f"✅ Transferred ${amount:.4f} successfully.")
                 try:
                     await context.bot.send_message(
@@ -889,12 +885,12 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                     )
                 except: pass
             else:
-                USERS_CACHE[uid]['balance'] += amount # Refund if user somehow vanished
+                # Refund (Simpler to just refund to Main)
+                USERS_CACHE[uid]['balance'] += amount
                 await query.edit_message_text("❌ Error: User not found.")
         else:
             await query.edit_message_text("❌ Transfer Failed: Insufficient Balance.")
 
-    # --- Withdrawal Flow ---
     elif data.startswith('withdraw_method_'):
         method = data.split('_')[2]
         context.user_data['withdraw_method'] = method
@@ -902,7 +898,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         await query.message.reply_text(f"<b>💸 Enter amount for {method} ($):</b>", parse_mode=ParseMode.HTML)
         await query.answer()
 
-    # --- Admin Actions ---
     elif data.startswith('admin_approve_') or data.startswith('admin_decline_'):
         if str(uid) != str(ADMIN_ID): return
         parts = data.split('_')
@@ -913,16 +908,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text(f"{query.message.text}\n\n✅ APPROVED", parse_mode=ParseMode.HTML)
         else:
             if target_id in USERS_CACHE:
-                USERS_CACHE[target_id]['balance'] += amount
+                USERS_CACHE[target_id]['balance'] += amount # Refund to Main
                 await asyncio.to_thread(background_save_users)
             await context.bot.send_message(chat_id=target_id, text=f"❌ Withdrawal of ${amount:.3f} Declined (Refunded).")
             await query.edit_message_text(f"{query.message.text}\n\n❌ DECLINED", parse_mode=ParseMode.HTML)
 
 if __name__ == "__main__":
     load_users_cache()
-    
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("add", add_command))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
@@ -933,5 +926,4 @@ if __name__ == "__main__":
     asyncio.get_event_loop().create_task(rate_limited_sender_task(app))
     asyncio.get_event_loop().create_task(background_number_cleanup_task(app))
     asyncio.get_event_loop().create_task(inactivity_checker_task(app))
-    
     app.run_polling()
